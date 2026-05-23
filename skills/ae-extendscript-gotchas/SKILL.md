@@ -29,25 +29,39 @@ This applies to any nesting level: layer contents, group contents, effect proper
 
 ---
 
-## 2. `setTemporalEaseAtKey` — количество элементов зависит от версии AE
+## 2. `setTemporalEaseAtKey` — количество элементов зависит от версии AE и свойства
 
-Количество элементов в массиве ease **зависит от версии AE и типа свойства**:
+Количество элементов в массиве ease **зависит от версии AE и типа свойства**.
+Ошибка `"Value array does not have N elements"` говорит сколько нужно — читай N из текста ошибки.
 
-- AE 2025 и ниже: **1 элемент** для любого свойства
-- AE 2026: **3 элемента** для Scale (2D), **1 элемент** для Rotation (1D), Position (2D)
-
-Ошибка "Value array does not have N elements" говорит сколько нужно.
+Проверено в AE 2026:
+- Rotation (1D) → **1 элемент**
+- Position (2D) → **1 элемент**
+- Scale (2D) → **3 элемента**
 
 ```jsx
-// Rotation (1D) — всегда 1 элемент
+// Rotation (1D) — 1 элемент
 rotProp.setTemporalEaseAtKey(1, [eIn], [eOut]);
+
+// Position (2D) — 1 элемент
+posProp.setTemporalEaseAtKey(1, [eIn], [eOut]);
 
 // Scale (2D) в AE 2026 — 3 элемента
 scaleProp.setTemporalEaseAtKey(1, [eIn, eIn, eIn], [eOut, eOut, eOut]);
-
-// Position (2D) — 1 элемент (проверено в AE 2026)
-posProp.setTemporalEaseAtKey(1, [eIn], [eOut]);
 ```
+
+`KeyframeEase(speed, influence)`:
+- speed: 0 = медленно, 100 = быстро (можно выше 100 для overshoot-эффекта, но осторожно)
+- influence: **минимум 0.1**, не 0 — `"Value 0 out of range 0.1 to 100"` иначе
+
+```jsx
+var eIn  = new KeyframeEase(0,   99);  // медленный старт
+var eOut = new KeyframeEase(400, 80);  // быстрый финал
+// WRONG: new KeyframeEase(400, 0) — бросает range error
+// CORRECT: new KeyframeEase(400, 0.1)
+```
+
+**Overshoot**: высокий speed (>100) при малом influence создаёт кривую с перелётом за пределы значений (отрицательный scale и т.п.). Держи influence ≥ 80 при высоком speed.
 
 Signature:
 ```jsx
@@ -253,6 +267,7 @@ gaussBlur.property("ADBE Gaussian Blur 2-0001").setValueAtTime(tEnd, 40);
 | Directional Blur | `ADBE Motion Blur` | `ADBE Motion Blur-0001` (Direction°: **0=vertical**, 90=horizontal), `ADBE Motion Blur-0002` (Blur Length) |
 | Brightness & Contrast | `ADBE Brightness & Contrast` | `ADBE Brightness & Contrast-0001` (Brightness, range −100..100), `ADBE Brightness & Contrast-0002` (Contrast) |
 | Fast Box Blur | `ADBE Box Blur2` | — |
+| Glow | добавлять через `"Glow"` (display name), внутри `ADBE Glo2` | `ADBE Glo2-0002` (Threshold %), `ADBE Glo2-0003` (Radius), `ADBE Glo2-0004` (Intensity), `ADBE Glo2-0006` (Glow Operation) |
 
 **Brightness max is 100**, not unlimited — `setValueAtTime(..., 120)` throws range error.
 
@@ -293,6 +308,65 @@ Wrong constructor (`ImportOptions(file)` without `new`) throws:
 Unable to call "importFile" because of parameter 1. undefined is not of the correct type.
 ```
 Always use `new ImportOptions(file)`.
+
+---
+
+## 14. Glow effect — добавлять через display name "Glow", не matchName
+
+`eff.addProperty("ADBE Glow")` бросает `"Can not add a property with name"`. Используй display name:
+
+```jsx
+var glow = eff.addProperty("Glow"); // display name работает
+// matchName внутри: ADBE Glo2
+glow.property("ADBE Glo2-0002").setValueAtTime(0,   19.6); // Threshold %
+glow.property("ADBE Glo2-0002").setValueAtTime(t,  100);
+glow.property("ADBE Glo2-0003").setValueAtTime(0,   0);    // Radius
+glow.property("ADBE Glo2-0003").setValueAtTime(t,  80);
+glow.property("ADBE Glo2-0004").setValueAtTime(0,   0);    // Intensity
+glow.property("ADBE Glo2-0004").setValueAtTime(t,   3);
+glow.property("ADBE Glo2-0006").setValue(5);               // Glow Operation: Multiply
+```
+
+**Glow Operation (`ADBE Glo2-0006`) — enum значения:**
+
+| Значение | Режим |
+|----------|-------|
+| 1 | None |
+| 2 | Above |
+| 3 | Below |
+| 4 | Add |
+| 5 | Multiply |
+| 6 | Screen |
+| 7–9 | другие режимы |
+
+---
+
+## 15. Track matte — matte слой должен быть ВЫШЕ целевого слоя
+
+В AE track matte: matte слой должен быть **прямо над** целевым (индекс на 1 меньше). Используй `moveBefore`, не `moveAfter`. AE автоматически скрывает matte слой визуально.
+
+```jsx
+var matteLayer = comp.layers.addShape();
+// ... настрой форму ...
+matteLayer.moveBefore(targetLayer);          // matte над target
+targetLayer.trackMatteType = TrackMatteType.ALPHA;
+```
+
+Маска на самом слое (`layer.Masks`) двигается вместе со слоем — не подходит для статичного обрезания в comp-пространстве. Для статичной маски используй track matte.
+
+---
+
+## 16. Mask на слое — координаты относительно anchor, не comp
+
+`layer.Masks` задаются в координатах слоя, центр = anchor point слоя. Если слой двигается — маска двигается вместе с ним. Это часто не то что нужно.
+
+```jsx
+// WRONG для статичной маски в comp-пространстве:
+var m = logoLayer.Masks.addProperty("Mask");
+// маска будет двигаться вместе с logoLayer
+
+// CORRECT — используй track matte (см. gotcha #15)
+```
 
 ---
 

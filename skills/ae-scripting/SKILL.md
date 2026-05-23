@@ -141,11 +141,24 @@ Pattern: shape/style lives in sub-comp, animation (position, in/outPoint) lives 
 
 ## Gotchas
 
-See [[ae-extendscript-gotchas]] for the full list — **update it whenever you hit a new API trap** so it doesn't happen again. Most critical ones:
+See [[ae-extendscript-gotchas]] for the full list — **read it before writing any keyframe, shape, or easing code.**
+
+### ВАЖНО: после каждой новой ошибки или нового открытия — обновляй ae-extendscript-gotchas
+
+**После ошибки AE** (неверные параметры, неверное имя, значение вне диапазона, неверный тип) — сразу добавляй gotcha с точным текстом ошибки, что было неверно, и как правильно.
+
+**После нахождения enum значений** (через перебор или документацию) — сразу записывай таблицу значений в gotcha. Например: Glow Operation 1=None, 2=Above, 3=Below, 4=Add, 5=Multiply, 6=Screen. Без этого придётся перебирать заново.
+
+Это единственный способ не повторять одну и ту же работу дважды.
+
+Most critical ones:
 - Add all sub-properties before fetching refs to animate (refs invalidate after `addProperty`)
-- `setTemporalEaseAtKey` always takes `[ease]` — exactly 1 element, even for 2D properties
+- `setTemporalEaseAtKey` — количество элементов в массиве зависит от версии AE и свойства (см. gotcha #2)
+- `KeyframeEase(speed, influence)` — influence минимум **0.1**, не 0 — бросает range error
 - `Roundness` on rect paths is not keyframeable — use `setValue` only
 - `addComp` width/height must be integers — always `Math.round()` calculated dimensions
+- Glow effect matchName — `"Glow"` (display name), internal matchName `ADBE Glo2`
+- Build stage exit code `1` = jsx ошибка, рендер использует старый `.aep` — всегда проверяй exit code
 - Test scripts with the debug wrapper before running the full render pipeline:
   ```bash
   osascript -e 'tell application "Adobe After Effects 2026" to DoScriptFile "/tmp/ae_debug_runner.jsx"'
