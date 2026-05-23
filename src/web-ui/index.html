@@ -273,6 +273,10 @@
   <div class="stage">
     <!-- floating menu button -->
     <button class="menu-btn" @click="sidebarOpen = !sidebarOpen">☰</button>
+    <button class="menu-btn tools-btn" @click.stop="toolsMenuOpen = !toolsMenuOpen">⚙</button>
+    <div v-if="toolsMenuOpen" class="tools-menu">
+      <button @click="openToolWindow('ease-visualizer')">Ease Visualizer</button>
+    </div>
 
     <template v-if="selected">
       <!-- SPLIT -->
@@ -343,6 +347,57 @@
     </template>
 
     <div class="empty" v-else>select a project</div>
+
+    <div v-for="win in toolWindows" :key="win.id" class="tool-window"
+         :style="{ left: win.x + 'px', top: win.y + 'px' }"
+         @mousedown="focusToolWindow(win.id)">
+      <div class="tool-window-header" @mousedown.prevent="startToolWindowDrag($event, win.id)">
+        <div class="tool-window-title">{{ win.title }}</div>
+        <button class="tool-window-close" @click.stop="closeToolWindow(win.id)">×</button>
+      </div>
+      <div class="tool-window-body" v-if="win.type === 'ease-visualizer'">
+        <div class="ease-svg-wrap">
+          <svg viewBox="0 0 220 128" preserveAspectRatio="none">
+            <path d="M12 116 L208 116 M12 116 L12 12" stroke="#2a2e35" stroke-width="1.2" fill="none"></path>
+            <path d="M12 64 L208 64 M110 116 L110 12" stroke="#20242b" stroke-width="1" fill="none"></path>
+            <path :d="easeGraph.handlePath" stroke="#395784" stroke-width="1.2" fill="none" stroke-dasharray="4 4"></path>
+            <circle :cx="easeGraph.cp1.x" :cy="easeGraph.cp1.y" r="3.5" fill="#6a93d6"></circle>
+            <circle :cx="easeGraph.cp2.x" :cy="easeGraph.cp2.y" r="3.5" fill="#6a93d6"></circle>
+            <path :d="easeGraph.curvePath" stroke="#7fb0ff" stroke-width="3" fill="none" stroke-linecap="round"></path>
+          </svg>
+        </div>
+
+        <div class="ease-grid">
+          <div>
+            <div class="ease-row-label">In</div>
+            <input class="ease-slider" type="range" min="0" max="100" step="1" v-model.number="easeTool.in" />
+          </div>
+          <input type="number" min="0" max="100" step="1" v-model.number="easeTool.in" />
+          <div>
+            <div class="ease-row-label">Out</div>
+            <input class="ease-slider" type="range" min="0" max="100" step="1" v-model.number="easeTool.out" />
+          </div>
+          <input type="number" min="0" max="100" step="1" v-model.number="easeTool.out" />
+        </div>
+
+        <div class="ease-preview-grid">
+          <div class="ease-preview-box">
+            <div class="ease-preview-title">Move</div>
+            <div class="ease-preview-dot" :style="{ transform: `translateX(${easePreview.moveX}px)` }"></div>
+          </div>
+          <div class="ease-preview-box">
+            <div class="ease-preview-title">Scale</div>
+            <div class="ease-preview-bar" :style="{ transform: `scaleX(${easePreview.scale})` }"></div>
+          </div>
+          <div class="ease-preview-box">
+            <div class="ease-preview-title">Fade</div>
+            <div class="ease-preview-fade" :style="{ opacity: easePreview.opacity }"></div>
+          </div>
+        </div>
+
+        <div class="ease-note">Visualizer only. It does not change anything in the preview UI yet.</div>
+      </div>
+    </div>
   </div>
 
   <!-- resize handle + sidebar -->
@@ -490,6 +545,13 @@ createApp({
     const sidebarWidth = ref(LS.get("sidebarWidth", 260));
     const resizing    = ref(false);
     const ts          = ref(Date.now());
+    const toolsMenuOpen = ref(false);
+    const toolWindows = ref([]);
+    const easeTool = reactive({
+      in: 33,
+      out: 33,
+    });
+    const previewTick = ref(0);
 
     const lastVideo   = ref(null);
     const refVideo    = ref(null);
@@ -503,6 +565,9 @@ createApp({
     const refEndedStyle  = ref({});
     const layoutVersion = ref(0);
     const overlayMeasure = ref(null);
+    let nextToolWindowId = 1;
+    let previewRaf = null;
+    let toolDrag = null;
 
     function getSavedTimelineMap() {
       return LS.get("timelineByProject", {});
