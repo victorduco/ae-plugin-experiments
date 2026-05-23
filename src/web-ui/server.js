@@ -1,10 +1,13 @@
 const http = require("http");
-const { execFile } = require("child_process");
+const { execFile, spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
 const OUTPUT_DIR = path.resolve(__dirname, "../../output");
+const RENDER_OPEN_SH = path.resolve(__dirname, "../utils/render-open.sh");
 const PORT = 3131;
+
+const renderJobs = new Map(); // outputName → { status, log }
 
 const MIME = {
   ".html": "text/html",
@@ -18,9 +21,14 @@ const MIME = {
 const sseClients = new Set();
 
 fs.watch(OUTPUT_DIR, { persistent: true }, (_eventType, filename) => {
-  if (!filename || path.extname(filename.toString()) !== ".mp4") return;
-  for (const res of sseClients) {
-    res.write("data: refresh\n\n");
+  if (!filename) return;
+  const f = filename.toString();
+  const ext = path.extname(f);
+  if (ext === ".mp4") {
+    for (const res of sseClients) res.write("data: refresh\n\n");
+  } else if (ext === ".aep") {
+    const aepPath = path.join(OUTPUT_DIR, f);
+    for (const res of sseClients) res.write(`data: aep-changed:${aepPath}\n\n`);
   }
 });
 
@@ -87,6 +95,110 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
       res.end(JSON.stringify({ ok: true }));
     });
+    return;
+  }
+
+  // API: list open AE projects (reads current project via JSX)
+  if (url.pathname === "/api/open-projects") {
+    const tmpOut = `/tmp/ae_open_projects_${Date.now()}.txt`;
+    const tmpJsx = `/tmp/ae_open_projects_${Date.now()}.jsx`;
+    const jsx = `(function(){var f=new File("${tmpOut}");f.open("w");if(app.project.file){f.writeln(app.project.file.fsName+"\\t"+app.project.file.name);}else{f.writeln("\\t");}f.close();})();`;
+    fs.writeFileSync(tmpJsx, jsx);
+    execFile("osascript", ["-e", `tell application "Adobe After Effects 2026" to DoScriptFile "${tmpJsx}"`], { timeout: 5000 }, (err) => {
+      try { fs.unlinkSync(tmpJsx); } catch {}
+      let projects = [];
+      try {
+        const lines = fs.readFileSync(tmpOut, "utf8").trim().split(/[\r\n]+/).filter(Boolean);
+        try { fs.unlinkSync(tmpOut); } catch {}
+        projects = lines.map(line => {
+          const tab = line.indexOf("\t");
+          const filePath = tab >= 0 ? line.slice(0, tab).trim() : "";
+          const name = tab >= 0 ? line.slice(tab + 1).trim() : "";
+          return filePath ? { path: filePath, name } : null;
+        }).filter(Boolean);
+      } catch {}
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify(projects));
+    });
+    return;
+  }
+
+  // API: list comps in the currently open AE project
+  if (url.pathname === "/api/open-project-comps") {
+    const tmpOut = `/tmp/ae_comps_${Date.now()}.txt`;
+    const tmpJsx = `/tmp/ae_comps_${Date.now()}.jsx`;
+    const jsx = `(function(){var f=new File("${tmpOut}");f.open("w");for(var i=1;i<=app.project.numItems;i++){var item=app.project.item(i);if(item instanceof CompItem){f.writeln(item.name);}}f.close();})();`;
+    fs.writeFileSync(tmpJsx, jsx);
+    execFile("osascript", ["-e", `tell application "Adobe After Effects 2026" to DoScriptFile "${tmpJsx}"`], { timeout: 5000 }, () => {
+      try { fs.unlinkSync(tmpJsx); } catch {}
+      let comps = [];
+      try {
+        comps = fs.readFileSync(tmpOut, "utf8").trim().split(/[\r\n]+/).filter(Boolean);
+        try { fs.unlinkSync(tmpOut); } catch {}
+      } catch {}
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify(comps));
+    });
+    return;
+  }
+
+  // API: render an open AE project
+  if (url.pathname === "/api/render-open") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { "Access-Control-Allow-Origin": "*" });
+      res.end();
+      return;
+    }
+    let body = "";
+    req.on("data", chunk => { body += chunk; });
+    req.on("end", () => {
+      let aepPath, compName, outputName;
+      try {
+        ({ aepPath, compName, outputName } = JSON.parse(body));
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ ok: false, error: "Bad JSON" }));
+        return;
+      }
+      if (!aepPath || !compName || !outputName) {
+        res.writeHead(400, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ ok: false, error: "Missing params" }));
+        return;
+      }
+      // sanitise outputName — no path separators
+      const safeName = path.basename(outputName).replace(/[^a-zA-Z0-9_\-]/g, "_");
+      if (renderJobs.get(safeName)?.status === "running") {
+        res.writeHead(409, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ ok: false, error: "Already rendering" }));
+        return;
+      }
+      renderJobs.set(safeName, { status: "running", log: "" });
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify({ ok: true, outputName: safeName }));
+      const child = spawn(RENDER_OPEN_SH, [aepPath, compName, safeName], { stdio: ["ignore", "pipe", "pipe"] });
+      const appendLog = d => { renderJobs.get(safeName).log += d.toString(); };
+      child.stdout.on("data", appendLog);
+      child.stderr.on("data", appendLog);
+      child.on("close", code => {
+        const job = renderJobs.get(safeName);
+        if (job) job.status = code === 0 ? "done" : "error";
+        for (const res of sseClients) res.write("data: refresh\n\n");
+      });
+    });
+    return;
+  }
+
+  // API: poll render job status
+  if (url.pathname === "/api/render-status") {
+    const name = url.searchParams.get("name") || "";
+    const job = renderJobs.get(name);
+    if (!job) {
+      res.writeHead(404, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify({ ok: false, error: "Not found" }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.end(JSON.stringify({ ok: true, status: job.status, log: job.log }));
     return;
   }
 

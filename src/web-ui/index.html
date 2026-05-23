@@ -258,6 +258,25 @@
   .open-aep-btn:hover { color: #bbb; border-color: #555; background: #202020; }
   .open-aep-btn:disabled { color: #444; border-color: #2a2a2a; cursor: default; background: #181818; }
 
+  .render-open-btn {
+    padding: 4px 8px; font-size: 11px; border-radius: 4px; border: 1px solid #333;
+    background: #1b1b1b; color: #666; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    transition: color 0.1s, border-color 0.1s, background 0.1s;
+  }
+  .render-open-btn:hover { color: #bbb; border-color: #555; background: #202020; }
+  .render-open-btn:disabled { color: #444; border-color: #2a2a2a; cursor: default; background: #181818; }
+  .render-open-btn.running { color: #f0a030; border-color: #6a4a10; }
+  .render-open-btn.done { color: #50c050; border-color: #2a5a2a; }
+  .render-open-btn.error { color: #e04040; border-color: #5a2020; }
+  .open-project-item {
+    display: flex; align-items: center; gap: 6px; padding: 4px 0;
+  }
+  .open-project-name {
+    flex: 1; min-width: 0; font-size: 11px; color: #999;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .open-project-name.active { color: #ddd; }
+
   .tc-input {
     width: 40px; padding: 5px 8px; font-size: 13px;
     background: #1e1e1e; color: #eee; border: 1px solid #333;
@@ -277,7 +296,7 @@
       <button @click="openToolWindow('ease-visualizer')">Ease Visualizer</button>
     </div>
 
-    <template v-if="selected">
+    <template v-if="videoName">
       <!-- SPLIT -->
       <div v-if="mode === 'split'" class="videos-split">
         <div class="video-cell">
@@ -416,13 +435,37 @@
         <div class="field">
           <div class="lbl">project</div>
           <div class="field-row">
-            <select v-model="selected" :disabled="pairs.length === 0" style="flex:1; min-width:0;">
-              <option disabled value="">{{ pairs.length ? 'Select…' : 'No pairs found' }}</option>
-              <option v-for="p in pairs" :key="p" :value="p">{{ p }}</option>
+            <select v-model="selected" style="flex:1; min-width:0;">
+              <option disabled value="">Select…</option>
+              <optgroup v-if="pairs.length" label="rendered pairs">
+                <option v-for="p in pairs" :key="p" :value="p">{{ p }}</option>
+              </optgroup>
+              <optgroup v-if="openProjects.length" label="open in ae">
+                <option v-for="proj in openProjects" :key="'open:'+proj.path" :value="'open:'+proj.path">{{ proj.name }}</option>
+              </optgroup>
             </select>
-            <button class="open-aep-btn" :disabled="!selected" @click="openAeProject">open ae</button>
+            <button class="open-aep-btn" :disabled="!pairName" @click="openAeProject">open ae</button>
           </div>
         </div>
+
+        <template v-if="isOpenProject">
+          <div class="sep-h"></div>
+          <div class="field">
+            <div class="field-row" style="gap:5px; align-items:center;">
+              <button
+                class="render-open-btn"
+                :disabled="currentOpenRenderStatus === 'running'"
+                @click="renderCurrentOpenProject"
+                style="flex:1">
+                {{ currentOpenRenderStatus === 'running' ? 'rendering…' : 'render' }}
+              </button>
+              <button class="render-open-btn" @click="toggleAutoRender" style="flex-shrink:0">
+                {{ autoRender ? 'auto on' : 'auto' }}
+              </button>
+            </div>
+            <div v-if="lastRenderLabel" class="lbl" style="margin-top:3px">{{ lastRenderLabel }}</div>
+          </div>
+        </template>
 
         <div class="sep-h"></div>
 
@@ -537,6 +580,23 @@ const LS = {
 createApp({
   setup() {
     const pairs       = ref([]);
+    const openProjects = ref([]);
+    const selectedOpenProject = ref("");
+    const openProjectComps = ref([]);
+    const selectedOpenComp = ref("");
+    const openRenderJobs = reactive({}); // path → { status, outputName }
+    const openRenderedComp = ref(""); // comp name used in last render (drives lastSrc/refSrc)
+    const autoRender = ref(true);
+    const lastRenderTime = ref(null); // Date or null
+    const now = ref(Date.now());
+    setInterval(() => { now.value = Date.now(); }, 15000);
+    const lastRenderLabel = computed(() => {
+      if (!lastRenderTime.value) return "";
+      const mins = Math.round((now.value - lastRenderTime.value.getTime()) / 60000);
+      if (mins < 1) return "just now";
+      return `${mins} min ago`;
+    });
+    let autoRenderTimer = null;
     const selected    = ref(LS.get("selected", ""));
     const trimStart   = ref(LS.get("trimStart", 0));
     const trimDur     = ref(LS.get("trimDur", null));
@@ -617,8 +677,13 @@ createApp({
       layoutVersion.value += 1;
     }
 
-    const lastSrc = computed(() => selected.value ? `/output/${selected.value}_last.mp4?t=${ts.value}` : "");
-    const refSrc  = computed(() => selected.value ? `/output/${selected.value}_ref.mp4?t=${ts.value}` : "");
+    const isOpenProject = computed(() => selected.value.startsWith("open:"));
+    const pairName = computed(() => isOpenProject.value ? "" : selected.value);
+    const openProjectPath = computed(() => isOpenProject.value ? selected.value.slice(5) : "");
+
+    const videoName = computed(() => pairName.value || openRenderedComp.value);
+    const lastSrc = computed(() => videoName.value ? `/output/${videoName.value}_last.mp4?t=${ts.value}` : "");
+    const refSrc  = computed(() => videoName.value ? `/output/${videoName.value}_ref.mp4?t=${ts.value}` : "");
     const refKey  = computed(() => `${refSrc.value}-${trimStart.value}-${trimDur.value}`);
 
     // effective ref duration = trimDur if set, else natural duration minus trimStart
@@ -1197,9 +1262,64 @@ createApp({
         document.body.removeChild(ta);
       }
     }
+    async function refreshOpenProjects() {
+      const data = await fetch("/api/open-projects").then(r => r.json()).catch(() => []);
+      openProjects.value = data;
+    }
+    const currentOpenRenderStatus = computed(() => openRenderJobs[openProjectPath.value]?.status || "");
+    const currentOpenRenderLabel = computed(() => {
+      const s = currentOpenRenderStatus.value;
+      if (s === "running") return "rendering…";
+      if (s === "done")    return "done ✓";
+      if (s === "error")   return "error";
+      return "render";
+    });
+    async function renderCurrentOpenProject() {
+      const aepPath = openProjectPath.value;
+      if (!aepPath) return;
+      if (openRenderJobs[aepPath]?.status === "running") return;
+      const comps = await fetch("/api/open-project-comps").then(r => r.json()).catch(() => []);
+      const compName = comps[0];
+      if (!compName) return;
+      const outputName = compName;
+      openRenderJobs[aepPath] = { status: "running", outputName };
+      const resp = await fetch("/api/render-open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aepPath, compName, outputName }),
+      }).then(r => r.json()).catch(() => ({ ok: false }));
+      if (!resp.ok) {
+        openRenderJobs[aepPath] = { status: "error", outputName };
+        return;
+      }
+      const safeName = resp.outputName;
+      const poll = setInterval(async () => {
+        const s = await fetch(`/api/render-status?name=${encodeURIComponent(safeName)}`).then(r => r.json()).catch(() => null);
+        if (!s) return;
+        openRenderJobs[aepPath] = { status: s.status, outputName: safeName };
+        if (s.status !== "running") {
+          clearInterval(poll);
+          if (s.status === "done") {
+            openRenderedComp.value = safeName;
+            lastRenderTime.value = new Date();
+            ts.value = Date.now(); // reload video
+          }
+        }
+      }, 2000);
+    }
+
+    function stopAutoRender() {
+      if (autoRenderTimer) { clearInterval(autoRenderTimer); autoRenderTimer = null; }
+    }
+    function toggleAutoRender() {
+      autoRender.value = !autoRender.value;
+    }
+    watch(isOpenProject, v => {
+      if (!v) { stopAutoRender(); openRenderedComp.value = ""; lastRenderTime.value = null; }
+    });
     async function openAeProject() {
-      if (!selected.value) return;
-      await fetch(`/api/open-aep?name=${encodeURIComponent(selected.value)}`, { method: "POST" });
+      if (!pairName.value) return;
+      await fetch(`/api/open-aep?name=${encodeURIComponent(pairName.value)}`, { method: "POST" });
     }
 
     function onLastLoaded() {
@@ -1272,12 +1392,23 @@ createApp({
     async function fetchPairs() {
       const data = await fetch("/api/pairs").then(r => r.json());
       pairs.value = data;
-      if (selected.value && !data.includes(selected.value)) selected.value = "";
+      if (selected.value && !selected.value.startsWith("open:") && !data.includes(selected.value)) selected.value = "";
       if (!selected.value && data.length) selected.value = data[0];
     }
     function connectSSE() {
       es = new EventSource("/events");
-      es.onmessage = () => { ts.value = Date.now(); fetchPairs(); };
+      es.onmessage = (e) => {
+        const data = e.data || "";
+        if (data.startsWith("aep-changed:")) {
+          const changedPath = data.slice("aep-changed:".length);
+          if (autoRender.value && openProjectPath.value === changedPath) {
+            renderCurrentOpenProject();
+          }
+        } else {
+          ts.value = Date.now();
+          fetchPairs();
+        }
+      };
       es.onerror = () => { es.close(); setTimeout(connectSSE, 2000); };
     }
 
@@ -1303,7 +1434,7 @@ createApp({
 
     let ro = null;
     onMounted(() => {
-      fetchPairs(); connectSSE(); window.addEventListener("keydown", onKeyDown);
+      fetchPairs(); connectSSE(); refreshOpenProjects(); window.addEventListener("keydown", onKeyDown);
       ro = new ResizeObserver(updateEndedStyles);
     });
     onUnmounted(() => {
@@ -1316,11 +1447,17 @@ createApp({
       window.removeEventListener("pointermove", onEaseHandlePointerMove);
       window.removeEventListener("pointerup", stopEaseHandleDrag);
       stopRaf();
+      stopAutoRender();
       ro?.disconnect();
     });
 
     return {
-      pairs, selected, trimStart, trimDur, speeds, speed, setSpeed, seekStepFrames,
+      pairs, selected, openProjects, openProjectComps, selectedOpenComp, openRenderJobs,
+      isOpenProject, pairName, videoName, openProjectPath,
+      currentOpenRenderStatus, currentOpenRenderLabel,
+      autoRender, lastRenderLabel, now,
+      refreshOpenProjects, renderCurrentOpenProject, toggleAutoRender,
+      trimStart, trimDur, speeds, speed, setSpeed, seekStepFrames,
       FPS, tcSec, tcFr, tcToSec, setTrimStart, setTrimDur,
       mode, setMode, showGrid, sidebarOpen, sidebarWidth, resizing, onResizerDown,
       lastSrc, refSrc, refKey, lastVideo, refVideo,
