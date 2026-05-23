@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AE Preview</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body { background: #111; color: #eee; font-family: system-ui, sans-serif; height: 100%; }
+  #app { height: 100%; display: flex; overflow: hidden; }
+
+  /* ── video area ── */
+  .stage {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; overflow: hidden;
+  }
+
+  /* menu icon — floats over video, doesn't take layout space */
+  .menu-btn {
+    position: absolute; top: 10px; right: 10px; z-index: 10;
+    width: 30px; height: 30px; border-radius: 5px;
+    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1);
+    color: #888; cursor: pointer; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  .menu-btn:hover { color: #ccc; }
+
+  /* split */
+  .videos-split {
+    flex: 1; display: grid; grid-template-rows: 1fr 1fr;
+    gap: 1px; background: #1a1a1a; overflow: hidden; min-height: 0;
+  }
+  .video-cell { display: flex; flex-direction: row; background: #111; overflow: hidden; align-items: stretch; min-height: 0; }
+  .video-wrap { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; display: flex; }
+  .video-wrap video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+
+  /* overlay */
+  .videos-overlay {
+    flex: 1; position: relative; overflow: hidden; min-height: 0; background: #000;
+  }
+  .videos-overlay video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .videos-overlay video.on-top { opacity: 0.5; }
+
+  /* controls bar */
+  .controls {
+    flex-shrink: 0; background: #161616; border-top: 1px solid #1e1e1e;
+    padding: 8px 14px; display: flex; align-items: center; gap: 10px;
+  }
+  .play-btn {
+    width: 28px; height: 28px; border-radius: 50%; border: 1px solid #333;
+    background: #1e1e1e; color: #ccc; cursor: pointer; font-size: 11px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .play-btn:hover { background: #252525; }
+  .scrubber { flex: 1; height: 3px; background: #2a2a2a; border-radius: 2px; cursor: pointer; }
+  .scrubber-fill { height: 100%; background: #555; border-radius: 2px; pointer-events: none; }
+  .scrubber:hover .scrubber-fill { background: #888; }
+  .time-lbl { font-size: 11px; color: #444; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+  .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #2a2a2a; font-size: 13px; }
+
+  /* ── resize handle ── */
+  .resizer {
+    width: 4px; flex-shrink: 0; cursor: col-resize;
+    background: #1e1e1e; transition: background 0.15s;
+  }
+  .resizer:hover, .resizer.dragging { background: #444; }
+
+  /* ── sidebar ── */
+  .sidebar {
+    flex-shrink: 0; background: #161616; display: flex; flex-direction: column;
+    overflow: hidden; border-left: 1px solid #222;
+  }
+
+  .sidebar-top {
+    flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 12px;
+    overflow-y: auto; min-height: 0;
+  }
+
+  .sidebar-bottom {
+    padding: 10px 14px; border-top: 1px solid #222;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .lbl { font-size: 11px; color: #555; white-space: nowrap; }
+
+  select {
+    width: 100%; padding: 6px 10px; font-size: 13px;
+    background: #1e1e1e; color: #eee; border: 1px solid #333;
+    border-radius: 5px; outline: none; cursor: pointer;
+  }
+  select:focus { border-color: #555; }
+
+  input[type="number"] {
+    width: 64px; padding: 5px 8px; font-size: 13px;
+    background: #1e1e1e; color: #eee; border: 1px solid #333;
+    border-radius: 5px; outline: none;
+  }
+  input[type="number"]:focus { border-color: #555; }
+  input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
+
+  .btn-group { display: flex; gap: 3px; flex-wrap: wrap; }
+  .btn-group button {
+    padding: 4px 9px; font-size: 12px; border-radius: 4px; border: 1px solid #333;
+    background: #1e1e1e; color: #777; cursor: pointer; transition: all 0.1s;
+  }
+  .btn-group button.active { background: #2a2a2a; color: #eee; border-color: #555; }
+
+  .sep-h { height: 1px; background: #222; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="stage">
+    <!-- floating menu button -->
+    <button class="menu-btn" @click="sidebarOpen = !sidebarOpen">☰</button>
+
+    <template v-if="selected">
+      <!-- SPLIT -->
+      <div v-if="mode === 'split'" class="videos-split">
+        <div class="video-cell">
+          <div class="video-wrap">
+            <video ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
+                   @loadedmetadata="onLastLoaded" @timeupdate="onLastTime"></video>
+          </div>
+        </div>
+        <div class="video-cell">
+          <div class="video-wrap">
+            <video ref="refVideo" :key="refKey" :src="refSrc" muted
+                   @loadedmetadata="onRefLoaded"></video>
+          </div>
+        </div>
+      </div>
+
+      <!-- OVERLAY -->
+      <div v-else class="videos-overlay">
+        <video ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
+               @loadedmetadata="onLastLoaded" @timeupdate="onLastTime"></video>
+        <video ref="refVideo" :key="refKey" :src="refSrc" muted class="on-top"
+               @loadedmetadata="onRefLoaded" @timeupdate="onRefTime"></video>
+      </div>
+
+    </template>
+
+    <div class="empty" v-else>select a project</div>
+  </div>
+
+  <!-- resize handle + sidebar -->
+  <template v-if="sidebarOpen">
+    <div class="resizer" :class="{ dragging: resizing }" @mousedown="onResizerDown"></div>
+    <div class="sidebar" :style="{ width: sidebarWidth + 'px' }">
+      <div class="sidebar-top">
+        <div class="field">
+          <div class="lbl">project</div>
+          <select v-model="selected" :disabled="pairs.length === 0">
+            <option disabled value="">{{ pairs.length ? 'Select…' : 'No pairs found' }}</option>
+            <option v-for="p in pairs" :key="p" :value="p">{{ p }}</option>
+          </select>
+        </div>
+
+        <div class="sep-h"></div>
+
+        <div class="field">
+          <div class="lbl">view</div>
+          <div class="btn-group">
+            <button :class="{ active: mode === 'split' }"   @click="setMode('split')">split</button>
+            <button :class="{ active: mode === 'overlay' }" @click="setMode('overlay')">overlay</button>
+          </div>
+        </div>
+
+        <div class="sep-h"></div>
+
+        <div class="field">
+          <div class="lbl">ref trim</div>
+          <div class="field-row">
+            <span class="lbl">start</span>
+            <input type="number" v-model.number="trimStart" min="0" step="0.01" placeholder="0" />
+            <span class="lbl">dur</span>
+            <input type="number" v-model.number="trimDur" min="0" step="0.01" placeholder="∞" />
+            <span class="lbl">s</span>
+          </div>
+        </div>
+
+        <div class="sep-h"></div>
+
+        <div class="field">
+          <div class="lbl">speed</div>
+          <div class="btn-group">
+            <button v-for="s in speeds" :key="s" :class="{ active: speed === s }" @click="setSpeed(s)">{{ s }}x</button>
+          </div>
+        </div>
+
+        <div class="sep-h"></div>
+
+        <div class="field">
+          <div class="lbl">seek step (← →)</div>
+          <div class="field-row">
+            <input type="number" v-model.number="seekStep" min="0.01" step="0.01" style="width:80px" />
+            <span class="lbl">s</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="controls" style="border-top:none; padding: 0;">
+          <button class="play-btn" @click="togglePlay">{{ playing ? '⏸' : '▶' }}</button>
+          <span class="time-lbl">{{ fmtTime(currentTime) }}</span>
+          <div class="scrubber" @mousedown="onScrubStart">
+            <div class="scrubber-fill" :style="{ width: progressPct + '%' }"></div>
+          </div>
+          <span class="time-lbl">{{ fmtTime(duration) }}</span>
+        </div>
+      </div>
+    </div>
+  </template>
+</div>
+
+<script>
+const { createApp, ref, computed, watch, onMounted, onUnmounted } = Vue;
+
+const LS = {
+  get(k, def) { try { const v = localStorage.getItem(k); return v !== null ? JSON.parse(v) : def; } catch { return def; } },
+  set(k, v)   { localStorage.setItem(k, JSON.stringify(v)); }
+};
+
+createApp({
+  setup() {
+    const pairs       = ref([]);
+    const selected    = ref(LS.get("selected", ""));
+    const trimStart   = ref(LS.get("trimStart", 0));
+    const trimDur     = ref(LS.get("trimDur", null));
+    const trimEnd     = computed(() => trimDur.value ? trimStart.value + trimDur.value : null);
+    const speeds      = [0.1, 0.25, 0.5, 0.75, 1];
+    const seekStep    = ref(LS.get("seekStep", 0.5));
+    const speed       = ref(LS.get("speed", 1));
+    const mode        = ref(LS.get("mode", "split"));
+    const sidebarOpen = ref(LS.get("sidebarOpen", true));
+    const sidebarWidth = ref(LS.get("sidebarWidth", 260));
+    const resizing    = ref(false);
+    const ts          = ref(Date.now());
+
+    const lastVideo   = ref(null);
+    const refVideo    = ref(null);
+    const playing     = ref(false);
+    const currentTime = ref(0);
+    const duration    = ref(0);
+
+    const lastSrc = computed(() => selected.value ? `/output/${selected.value}_last.mp4?t=${ts.value}` : "");
+    const refSrc  = computed(() => selected.value ? `/output/${selected.value}_ref.mp4?t=${ts.value}` : "");
+    const refKey  = computed(() => `${refSrc.value}-${trimStart.value}-${trimDur.value}`);
+    const progressPct = computed(() => duration.value ? (currentTime.value / duration.value) * 100 : 0);
+
+    watch(selected,     v => LS.set("selected", v));
+    watch(trimStart,    v => LS.set("trimStart", v));
+    watch(trimDur,      v => LS.set("trimDur", v));
+    watch(speed,        v => LS.set("speed", v));
+    watch(mode,         v => LS.set("mode", v));
+    watch(sidebarOpen,  v => LS.set("sidebarOpen", v));
+    watch(sidebarWidth, v => LS.set("sidebarWidth", v));
+    watch(seekStep,     v => LS.set("seekStep", v));
+
+    function setSpeed(s) {
+      speed.value = s;
+      [lastVideo.value, refVideo.value].forEach(v => { if (v) v.playbackRate = s; });
+    }
+    function setMode(m) { mode.value = m; }
+    function applySpeed(v) { if (v) v.playbackRate = speed.value; }
+
+    function syncRef() {
+      const lv = lastVideo.value;
+      const rv = refVideo.value;
+      if (!lv || !rv) return;
+      // ref always mirrors last's position, offset by trimStart into ref clip
+      const refDur = trimDur.value ? trimDur.value : rv.duration;
+      const refPos = trimStart.value + (lv.currentTime % refDur);
+      if (Math.abs(rv.currentTime - refPos) > 0.08) rv.currentTime = refPos;
+    }
+
+    function togglePlay() {
+      const lv = lastVideo.value; const rv = refVideo.value;
+      if (playing.value) {
+        lv?.pause(); rv?.pause(); playing.value = false;
+      } else {
+        lv?.play(); rv?.play(); playing.value = true;
+      }
+    }
+
+    function onLastLoaded() {
+      const v = lastVideo.value; if (!v) return;
+      duration.value = v.duration; applySpeed(v);
+      // start paused — user controls playback
+      v.pause(); playing.value = false;
+    }
+    function onRefLoaded() {
+      const rv = refVideo.value; if (!rv) return;
+      applySpeed(rv);
+      rv.currentTime = trimStart.value;
+      rv.pause();
+    }
+    function onLastTime() {
+      const v = lastVideo.value; if (!v) return;
+      currentTime.value = v.currentTime;
+      // loop last
+      if (v.currentTime >= v.duration - 0.05) {
+        v.currentTime = 0;
+        if (playing.value) v.play();
+      }
+      syncRef();
+    }
+    // ref has no independent timeupdate logic — it's driven by last via syncRef
+
+    function fmtTime(t) {
+      if (!t) return "0:00";
+      return `${Math.floor(t / 60)}:${Math.floor(t % 60).toString().padStart(2, "0")}`;
+    }
+
+    function onScrubStart(e) {
+      scrubTo(e);
+      const onMove = e2 => scrubTo(e2);
+      const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    }
+    function scrubTo(e) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * duration.value;
+      if (lastVideo.value) lastVideo.value.currentTime = t;
+      currentTime.value = t;
+      syncRef();
+    }
+
+    // sidebar resize
+    function onResizerDown(e) {
+      resizing.value = true;
+      const startX = e.clientX;
+      const startW = sidebarWidth.value;
+      const onMove = e2 => {
+        const delta = startX - e2.clientX;
+        sidebarWidth.value = Math.max(200, Math.min(600, startW + delta));
+      };
+      const onUp = () => {
+        resizing.value = false;
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    }
+
+    let es = null;
+    async function fetchPairs() {
+      const data = await fetch("/api/pairs").then(r => r.json());
+      pairs.value = data;
+      if (selected.value && !data.includes(selected.value)) selected.value = "";
+      if (!selected.value && data.length) selected.value = data[0];
+    }
+    function connectSSE() {
+      es = new EventSource("/events");
+      es.onmessage = () => { ts.value = Date.now(); fetchPairs(); };
+      es.onerror = () => { es.close(); setTimeout(connectSSE, 2000); };
+    }
+
+    function seek(delta) {
+      const v = lastVideo.value; if (!v) return;
+      const t = Math.max(0, Math.min(v.duration, v.currentTime + delta));
+      v.currentTime = t;
+      currentTime.value = t;
+      syncRef();
+    }
+
+    function onKeyDown(e) {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+      if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+      if (e.code === "ArrowLeft")  { e.preventDefault(); seek(-seekStep.value); }
+      if (e.code === "ArrowRight") { e.preventDefault(); seek(seekStep.value); }
+    }
+
+    onMounted(() => { fetchPairs(); connectSSE(); window.addEventListener("keydown", onKeyDown); });
+    onUnmounted(() => { es?.close(); window.removeEventListener("keydown", onKeyDown); });
+
+    return {
+      pairs, selected, trimStart, trimDur, speeds, speed, setSpeed, seekStep,
+      mode, setMode, sidebarOpen, sidebarWidth, resizing, onResizerDown,
+      lastSrc, refSrc, refKey, lastVideo, refVideo,
+      playing, currentTime, duration, progressPct,
+      togglePlay, onLastLoaded, onRefLoaded, onLastTime,
+      fmtTime, onScrubStart,
+    };
+  }
+}).mount("#app");
+</script>
+</body>
+</html>
