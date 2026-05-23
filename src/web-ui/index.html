@@ -56,18 +56,18 @@
   }
   .tool-window-close:hover { color: #ddd; background: #282828; }
   .tool-window-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .tool-window-actions {
+    display: flex; justify-content: flex-end;
+  }
   .ease-grid { display: grid; grid-template-columns: 1fr 56px; gap: 8px 10px; align-items: center; }
   .ease-row-label { font-size: 11px; color: #7a7a7a; }
   input[type="range"].ease-slider {
     width: 100%; accent-color: #4a88ff;
   }
   .ease-svg-wrap {
-    height: 148px; padding: 10px; border-radius: 10px; background: #121418; border: 1px solid #2a2d33;
+    height: 160px; padding: 10px; border-radius: 10px; background: #121418; border: 1px solid #2a2d33;
   }
   .ease-svg-wrap svg { width: 100%; height: 100%; display: block; }
-  .ease-preview-grid {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-  }
   .ease-preview-box {
     height: 68px; border-radius: 10px; background: #121418; border: 1px solid #2a2d33;
     position: relative; overflow: hidden;
@@ -79,14 +79,13 @@
     position: absolute; width: 10px; height: 10px; border-radius: 999px; background: #5ea1ff;
     top: 29px; left: 8px; box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
   }
-  .ease-preview-bar {
-    position: absolute; left: 8px; right: 8px; bottom: 12px; height: 10px;
-    transform-origin: left center; border-radius: 999px; background: linear-gradient(90deg, #5ea1ff, #95bbff);
+  .ease-preview-track {
+    position: absolute; left: 8px; right: 8px; top: 33px; height: 2px; background: #2c3440;
   }
-  .ease-preview-fade {
-    position: absolute; inset: 18px 22px 12px; border-radius: 10px; background: #5ea1ff;
+  .ease-handle {
+    fill: #79a9ff; stroke: rgba(10,14,20,0.95); stroke-width: 2; cursor: grab;
   }
-  .ease-note { font-size: 10px; color: #666; line-height: 1.35; }
+  .ease-handle.active { cursor: grabbing; }
 
   /* split */
   .videos-split {
@@ -356,46 +355,55 @@
         <button class="tool-window-close" @click.stop="closeToolWindow(win.id)">×</button>
       </div>
       <div class="tool-window-body" v-if="win.type === 'ease-visualizer'">
+        <div class="tool-window-actions">
+          <button class="open-aep-btn" @click="copyEaseValues">copy values</button>
+        </div>
         <div class="ease-svg-wrap">
-          <svg viewBox="0 0 220 128" preserveAspectRatio="none">
+          <svg viewBox="0 0 220 128" preserveAspectRatio="xMidYMid meet"
+               @pointerdown="onEaseGraphPointerDown">
             <path d="M12 116 L208 116 M12 116 L12 12" stroke="#2a2e35" stroke-width="1.2" fill="none"></path>
             <path d="M12 64 L208 64 M110 116 L110 12" stroke="#20242b" stroke-width="1" fill="none"></path>
             <path :d="easeGraph.handlePath" stroke="#395784" stroke-width="1.2" fill="none" stroke-dasharray="4 4"></path>
-            <circle :cx="easeGraph.cp1.x" :cy="easeGraph.cp1.y" r="3.5" fill="#6a93d6"></circle>
-            <circle :cx="easeGraph.cp2.x" :cy="easeGraph.cp2.y" r="3.5" fill="#6a93d6"></circle>
+            <circle :cx="easeGraph.cp1.x" :cy="easeGraph.cp1.y" r="5.5"
+                    class="ease-handle" :class="{ active: easeDragHandle === 'cp1' }"
+                    @pointerdown.stop="startEaseHandleDrag($event, 'cp1')"></circle>
+            <circle :cx="easeGraph.cp2.x" :cy="easeGraph.cp2.y" r="5.5"
+                    class="ease-handle" :class="{ active: easeDragHandle === 'cp2' }"
+                    @pointerdown.stop="startEaseHandleDrag($event, 'cp2')"></circle>
             <path :d="easeGraph.curvePath" stroke="#7fb0ff" stroke-width="3" fill="none" stroke-linecap="round"></path>
           </svg>
         </div>
 
         <div class="ease-grid">
           <div>
-            <div class="ease-row-label">In</div>
-            <input class="ease-slider" type="range" min="0" max="100" step="1" v-model.number="easeTool.in" />
+            <div class="ease-row-label">In Influence</div>
           </div>
-          <input type="number" min="0" max="100" step="1" v-model.number="easeTool.in" />
+          <input type="number" min="0" max="100" step="1" v-model.number="easeTool.inX" />
           <div>
-            <div class="ease-row-label">Out</div>
-            <input class="ease-slider" type="range" min="0" max="100" step="1" v-model.number="easeTool.out" />
+            <div class="ease-row-label">In Speed</div>
           </div>
-          <input type="number" min="0" max="100" step="1" v-model.number="easeTool.out" />
+          <input type="number" min="0" max="100" step="1" v-model.number="easeTool.inY" />
+          <div>
+            <div class="ease-row-label">Out Influence</div>
+          </div>
+          <input type="number" min="0" max="100" step="1" v-model.number="easeTool.outX" />
+          <div>
+            <div class="ease-row-label">Out Speed</div>
+          </div>
+          <input type="number" min="0" max="100" step="1" v-model.number="easeTool.outY" />
+          <div>
+            <div class="ease-row-label">Duration</div>
+          </div>
+          <input type="number" min="50" max="10000" step="10" v-model.number="easeTool.duration" />
         </div>
 
-        <div class="ease-preview-grid">
-          <div class="ease-preview-box">
-            <div class="ease-preview-title">Move</div>
-            <div class="ease-preview-dot" :style="{ transform: `translateX(${easePreview.moveX}px)` }"></div>
-          </div>
-          <div class="ease-preview-box">
-            <div class="ease-preview-title">Scale</div>
-            <div class="ease-preview-bar" :style="{ transform: `scaleX(${easePreview.scale})` }"></div>
-          </div>
-          <div class="ease-preview-box">
-            <div class="ease-preview-title">Fade</div>
-            <div class="ease-preview-fade" :style="{ opacity: easePreview.opacity }"></div>
-          </div>
+        <div class="ease-preview-box" @click="replayEasePreview">
+          <div class="ease-preview-title">Move</div>
+          <div class="ease-preview-track"></div>
+          <div class="ease-preview-dot"
+               :key="easePreview.runId"
+               :style="easePreview.dotStyle"></div>
         </div>
-
-        <div class="ease-note">Visualizer only. It does not change anything in the preview UI yet.</div>
       </div>
     </div>
   </div>
@@ -548,10 +556,14 @@ createApp({
     const toolsMenuOpen = ref(false);
     const toolWindows = ref([]);
     const easeTool = reactive({
-      in: 33,
-      out: 33,
+      inX: 33,
+      inY: 0,
+      outX: 67,
+      outY: 100,
+      duration: 1200,
     });
-    const previewTick = ref(0);
+    const easePreviewRun = ref(0);
+    const easePreviewActive = ref(false);
 
     const lastVideo   = ref(null);
     const refVideo    = ref(null);
@@ -566,8 +578,8 @@ createApp({
     const layoutVersion = ref(0);
     const overlayMeasure = ref(null);
     let nextToolWindowId = 1;
-    let previewRaf = null;
     let toolDrag = null;
+    const easeDragHandle = ref(null);
 
     function getSavedTimelineMap() {
       return LS.get("timelineByProject", {});
@@ -730,6 +742,49 @@ createApp({
         value: Math.round(distance),
       };
     });
+    const clampedEaseInX = computed(() => Math.max(0, Math.min(100, Math.round(easeTool.inX || 0))));
+    const clampedEaseInY = computed(() => Math.max(0, Math.min(100, Math.round(easeTool.inY || 0))));
+    const clampedEaseOutX = computed(() => Math.max(0, Math.min(100, Math.round(easeTool.outX || 0))));
+    const clampedEaseOutY = computed(() => Math.max(0, Math.min(100, Math.round(easeTool.outY || 0))));
+    const clampedEaseDuration = computed(() => Math.max(50, Math.min(10000, Math.round(easeTool.duration || 0))));
+    const easeControlPoints = computed(() => ({
+      x1: clampedEaseInX.value / 100,
+      y1: clampedEaseInY.value / 100,
+      x2: clampedEaseOutX.value / 100,
+      y2: clampedEaseOutY.value / 100,
+    }));
+    const easeGraph = computed(() => {
+      const padL = 12, padR = 12, padT = 12, padB = 12;
+      const w = 220 - padL - padR;
+      const h = 128 - padT - padB;
+      const cp = easeControlPoints.value;
+      const cp1 = { x: padL + cp.x1 * w, y: 116 - (cp.y1 * h) };
+      const cp2 = { x: padL + cp.x2 * w, y: 116 - (cp.y2 * h) };
+      let d = "";
+      for (let i = 0; i <= 32; i += 1) {
+        const t = i / 32;
+        const p = cubicBezierPoint(t, cp.x1, cp.y1, cp.x2, cp.y2);
+        const x = padL + p.x * w;
+        const y = 116 - (p.y * h);
+        d += i === 0 ? `M${x} ${y}` : ` L${x} ${y}`;
+      }
+      return {
+        cp1,
+        cp2,
+        curvePath: d,
+        handlePath: `M12 116 L${cp1.x} ${cp1.y} M208 12 L${cp2.x} ${cp2.y}`,
+      };
+    });
+    const easePreview = computed(() => {
+      const travelPx = 276;
+      return {
+        runId: easePreviewRun.value,
+        dotStyle: {
+          transform: `translateX(${easePreviewActive.value ? travelPx : 0}px)`,
+          transition: `transform ${clampedEaseDuration.value}ms cubic-bezier(${easeControlPoints.value.x1}, ${easeControlPoints.value.y1}, ${easeControlPoints.value.x2}, ${easeControlPoints.value.y2})`
+        },
+      };
+    });
 
     watch(selected,     v => LS.set("selected", v));
     watch(trimStart,    v => LS.set("trimStart", v));
@@ -741,13 +796,159 @@ createApp({
     watch(sidebarWidth, v => LS.set("sidebarWidth", v));
     watch(seekStepFrames, v => seekStepFrames.value = Math.max(1, Math.round(v || 1)));
     watch(seekStepFrames, v => LS.set("seekStepFrames", v));
+    watch(() => easeTool.inX, v => easeTool.inX = Math.max(0, Math.min(100, Math.round(v || 0))));
+    watch(() => easeTool.inY, v => easeTool.inY = Math.max(0, Math.min(100, Math.round(v || 0))));
+    watch(() => easeTool.outX, v => easeTool.outX = Math.max(0, Math.min(100, Math.round(v || 0))));
+    watch(() => easeTool.outY, v => easeTool.outY = Math.max(0, Math.min(100, Math.round(v || 0))));
+    watch(() => easeTool.duration, v => easeTool.duration = Math.max(50, Math.min(10000, Math.round(v || 0))));
     watch(currentTime,  v => saveTimeline(selected.value, v));
     watch(selected, v => {
       const t = getSavedTimeline(v);
       masterTime = t;
       currentTime.value = t;
     });
+    watch(() => [easeTool.inX, easeTool.inY, easeTool.outX, easeTool.outY], () => {
+      replayEasePreview();
+    });
 
+    function cubicBezierPoint(t, x1, y1, x2, y2) {
+      const mt = 1 - t;
+      const mt2 = mt * mt;
+      const t2 = t * t;
+      const a = mt2 * mt;
+      const b = 3 * mt2 * t;
+      const c = 3 * mt * t2;
+      const d = t * t2;
+      return {
+        x: b * x1 + c * x2 + d,
+        y: b * y1 + c * y2 + d,
+      };
+    }
+    function cubicBezierCoord(t, a1, a2) {
+      const mt = 1 - t;
+      return 3 * mt * mt * t * a1 + 3 * mt * t * t * a2 + t * t * t;
+    }
+    function cubicBezierCoordDerivative(t, a1, a2) {
+      const mt = 1 - t;
+      return 3 * mt * mt * a1 + 6 * mt * t * (a2 - a1) + 3 * t * t * (1 - a2);
+    }
+    function cubicBezierYForX(x, x1, y1, x2, y2) {
+      let t = x;
+      for (let i = 0; i < 6; i += 1) {
+        const currentX = cubicBezierCoord(t, x1, x2) - x;
+        const derivative = cubicBezierCoordDerivative(t, x1, x2);
+        if (Math.abs(derivative) < 1e-6) break;
+        t = Math.max(0, Math.min(1, t - currentX / derivative));
+      }
+      let lo = 0;
+      let hi = 1;
+      for (let i = 0; i < 10; i += 1) {
+        const currentX = cubicBezierCoord(t, x1, x2);
+        if (Math.abs(currentX - x) < 1e-4) break;
+        if (currentX < x) lo = t; else hi = t;
+        t = (lo + hi) / 2;
+      }
+      return cubicBezierCoord(t, y1, y2);
+    }
+    function getEaseSvgRect() {
+      const svg = document.querySelector(".ease-svg-wrap svg");
+      return svg ? svg.getBoundingClientRect() : null;
+    }
+    function replayEasePreview() {
+      easePreviewRun.value += 1;
+      easePreviewActive.value = false;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          easePreviewActive.value = true;
+        });
+      });
+    }
+    function updateEaseFromGraphEvent(e, handle) {
+      const rect = getEaseSvgRect();
+      if (!rect) return;
+      const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const ny = Math.max(0, Math.min(1, 1 - ((e.clientY - rect.top) / rect.height)));
+      if (handle === "cp1") {
+        easeTool.inX = Math.round(nx * 100);
+        easeTool.inY = Math.round(ny * 100);
+      } else {
+        easeTool.outX = Math.round(nx * 100);
+        easeTool.outY = Math.round(ny * 100);
+      }
+    }
+    function onEaseHandlePointerMove(e) {
+      if (!easeDragHandle.value) return;
+      updateEaseFromGraphEvent(e, easeDragHandle.value);
+    }
+    function stopEaseHandleDrag() {
+      easeDragHandle.value = null;
+      window.removeEventListener("pointermove", onEaseHandlePointerMove);
+      window.removeEventListener("pointerup", stopEaseHandleDrag);
+    }
+    function startEaseHandleDrag(e, handle) {
+      easeDragHandle.value = handle;
+      updateEaseFromGraphEvent(e, handle);
+      window.addEventListener("pointermove", onEaseHandlePointerMove);
+      window.addEventListener("pointerup", stopEaseHandleDrag);
+    }
+    function onEaseGraphPointerDown(e) {
+      const cp1 = easeGraph.value.cp1;
+      const cp2 = easeGraph.value.cp2;
+      const rect = getEaseSvgRect();
+      if (!rect) return;
+      const scaleX = 220 / rect.width;
+      const scaleY = 128 / rect.height;
+      const px = (e.clientX - rect.left) * scaleX;
+      const py = (e.clientY - rect.top) * scaleY;
+      const d1 = Math.hypot(px - cp1.x, py - cp1.y);
+      const d2 = Math.hypot(px - cp2.x, py - cp2.y);
+      startEaseHandleDrag(e, d1 <= d2 ? "cp1" : "cp2");
+    }
+    function focusToolWindow(id) {
+      const idx = toolWindows.value.findIndex(w => w.id === id);
+      if (idx < 0) return;
+      const [win] = toolWindows.value.splice(idx, 1);
+      toolWindows.value.push(win);
+    }
+    function openToolWindow(type) {
+      toolsMenuOpen.value = false;
+      const existing = toolWindows.value.find(w => w.type === type);
+      if (existing) {
+        focusToolWindow(existing.id);
+        return;
+      }
+      const title = type === "ease-visualizer" ? "Ease Visualizer" : type;
+      toolWindows.value.push({
+        id: nextToolWindowId++,
+        type,
+        title,
+        x: 28 + toolWindows.value.length * 18,
+        y: 84 + toolWindows.value.length * 18,
+      });
+    }
+    function closeToolWindow(id) {
+      toolWindows.value = toolWindows.value.filter(w => w.id !== id);
+    }
+    function startToolWindowDrag(e, id) {
+      const win = toolWindows.value.find(w => w.id === id);
+      if (!win) return;
+      focusToolWindow(id);
+      toolDrag = { id, startX: e.clientX, startY: e.clientY, winX: win.x, winY: win.y };
+      window.addEventListener("mousemove", onToolWindowDrag);
+      window.addEventListener("mouseup", stopToolWindowDrag);
+    }
+    function onToolWindowDrag(e) {
+      if (!toolDrag) return;
+      const win = toolWindows.value.find(w => w.id === toolDrag.id);
+      if (!win) return;
+      win.x = Math.max(12, toolDrag.winX + (e.clientX - toolDrag.startX));
+      win.y = Math.max(12, toolDrag.winY + (e.clientY - toolDrag.startY));
+    }
+    function stopToolWindowDrag() {
+      toolDrag = null;
+      window.removeEventListener("mousemove", onToolWindowDrag);
+      window.removeEventListener("mouseup", stopToolWindowDrag);
+    }
     function setSpeed(s) {
       speed.value = s;
       [lastVideo.value, refVideo.value].forEach(v => { if (v) v.playbackRate = s; });
@@ -972,6 +1173,30 @@ createApp({
         document.body.removeChild(ta);
       }
     }
+    async function copyEaseValues() {
+      const text = [
+        `In Influence: ${clampedEaseInX.value}`,
+        `In Speed: ${clampedEaseInY.value}`,
+        `Out Influence: ${clampedEaseOutX.value}`,
+        `Out Speed: ${clampedEaseOutY.value}`,
+        `Duration: ${clampedEaseDuration.value}ms`,
+        ``,
+        `In → KeyframeEase(speed=${clampedEaseInY.value}, influence=${clampedEaseInX.value})`,
+        `Out → KeyframeEase(speed=${clampedEaseOutY.value}, influence=${clampedEaseOutX.value})`,
+      ].join("\n");
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+    }
     async function openAeProject() {
       if (!selected.value) return;
       await fetch(`/api/open-aep?name=${encodeURIComponent(selected.value)}`, { method: "POST" });
@@ -1086,6 +1311,10 @@ createApp({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointermove", onOverlayPointerMove);
       window.removeEventListener("pointerup", onOverlayPointerUp);
+      window.removeEventListener("mousemove", onToolWindowDrag);
+      window.removeEventListener("mouseup", stopToolWindowDrag);
+      window.removeEventListener("pointermove", onEaseHandlePointerMove);
+      window.removeEventListener("pointerup", stopEaseHandleDrag);
       stopRaf();
       ro?.disconnect();
     });
@@ -1097,7 +1326,11 @@ createApp({
       lastSrc, refSrc, refKey, lastVideo, refVideo,
       playing, currentTime, duration, progressPct, overlayGrid, overlayMeasurement,
       lastEnded, refEnded, lastEndedStyle, refEndedStyle,
-      togglePlay, goToStart, seekFrames, onLastLoaded, onRefLoaded, onLastTime, onRefTime, onOverlayPointerDown, copyMeasurementValue, openAeProject,
+      toolsMenuOpen, toolWindows, easeTool, easeGraph, easePreview,
+      togglePlay, goToStart, seekFrames, onLastLoaded, onRefLoaded, onLastTime, onRefTime,
+      onOverlayPointerDown, copyMeasurementValue, openAeProject,
+      openToolWindow, closeToolWindow, focusToolWindow, startToolWindowDrag,
+      easeDragHandle, startEaseHandleDrag, onEaseGraphPointerDown, replayEasePreview, copyEaseValues,
       fmtTime, fmt2, onScrubStart,
     };
   }

@@ -370,6 +370,50 @@ var m = logoLayer.Masks.addProperty("Mask");
 
 ---
 
+## 17. Gradient Fill — `setValue` на цветовых стопах крашит AE
+
+`gradColors.setValue({stops: ...})` роняет AE без диалога и без лога. Gradient Fill через ExtendScript практически невозможно настроить стандартным способом.
+
+**Не используй `ADBE Vector Graphic - Gradient Fill` с анимацией стопов.** Для эффекта градиентного fade используй несколько полупрозрачных rect слоёв:
+
+```jsx
+// WRONG — крашит AE:
+var gradFill = gradc.property("ADBE Vector Graphic - Gradient Fill");
+var gradColors = gradFill.property("ADBE Vector Grad Colors");
+gradColors.setValue({ stops: [[0, [0,0,0,1]], [1, [0,0,0,0]]] }); // CRASH
+
+// CORRECT — симулируй градиент через N полупрозрачных слоёв:
+var steps = 10;
+for (var s = 0; s < steps; s++) {
+    var fade = comp.layers.addShape();
+    // ... rect size = fullW x (gradH / steps) ...
+    var opacity = 1 - (s + 0.5) / steps;
+    fade.property("Transform").property("Opacity").setValue(opacity * 100);
+}
+```
+
+---
+
+## 18. `moveAfter` / `moveBefore` внутри цикла — осторожно
+
+Вызов `layer.moveAfter(other)` внутри цикла `for` может крашить AE — после каждого вызова индексы слоёв пересчитываются, и следующая итерация работает с невалидными ссылками. Если нужно упорядочить слои из цикла — делай это после завершения цикла, или не используй `moveAfter` вообще (добавляй слои в нужном порядке изначально).
+
+```jsx
+// ОПАСНО:
+for (var s = 0; s < steps; s++) {
+    var layer = comp.layers.addShape();
+    layer.moveAfter(refLayer); // может крашить AE
+}
+
+// БЕЗОПАСНО — просто добавляй в нужном порядке без moveAfter:
+for (var s = 0; s < steps; s++) {
+    var layer = comp.layers.addShape();
+    // порядок определяется последовательностью addShape()
+}
+```
+
+---
+
 ## Property matchNames (rect shape)
 
 Useful when `property("Display Name")` fails — use matchName instead:
