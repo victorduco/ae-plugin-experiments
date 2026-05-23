@@ -45,6 +45,61 @@
   .videos-overlay video.on-top { opacity: 0.5; }
   .videos-overlay .video-ended-overlay { z-index: 2; }
   .videos-overlay .video-ended-overlay.on-top { opacity: 0.5; }
+  .overlay-hit-area {
+    position: absolute; inset: 0; z-index: 4; cursor: crosshair; user-select: none;
+  }
+  .overlay-measure {
+    position: absolute; pointer-events: none; z-index: 5; overflow: visible; user-select: none;
+  }
+  .overlay-measure-line {
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .overlay-measure-label {
+    position: absolute; z-index: 6; transform: translate(-50%, -50%);
+    padding: 8px 12px; border-radius: 999px;
+    background: rgba(22, 26, 33, 0.9); color: #fff;
+    border: 1px solid rgba(255,255,255,0.22);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.45);
+    font-size: 12px; line-height: 1; font-weight: 500;
+    font-variant-numeric: tabular-nums; letter-spacing: 0.01em;
+    backdrop-filter: blur(10px);
+    white-space: nowrap; cursor: copy;
+  }
+  .overlay-measure-label:hover { background: rgba(32, 37, 46, 0.96); }
+  .overlay-grid {
+    position: absolute; pointer-events: none; z-index: 3; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.18);
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55);
+    user-select: none;
+  }
+  .overlay-grid-line-x,
+  .overlay-grid-line-y {
+    position: absolute; background: rgba(255,255,255,0.18);
+  }
+  .overlay-grid-line-x.major,
+  .overlay-grid-line-y.major {
+    background: rgba(255,255,255,0.32);
+  }
+  .overlay-grid-line-x.center,
+  .overlay-grid-line-y.center {
+    background: rgba(255,255,255,0.5);
+  }
+  .overlay-grid-line-x { top: 0; bottom: 0; width: 1px; transform: translateX(-0.5px); }
+  .overlay-grid-line-y { left: 0; right: 0; height: 1px; transform: translateY(-0.5px); }
+  .overlay-grid-label {
+    position: absolute; font-size: 10px; line-height: 1; color: rgba(255,255,255,0.92);
+    font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    user-select: none;
+  }
+  .overlay-grid-label-x { top: 6px; transform: translateX(-50%); }
+  .overlay-grid-label-y { left: 6px; transform: translateY(-50%); }
+  .overlay-grid-badge {
+    position: absolute; right: 8px; bottom: 8px; padding: 4px 6px;
+    border-radius: 4px; background: rgba(0,0,0,0.5); color: rgba(255,255,255,0.88);
+    font-size: 10px; line-height: 1; font-variant-numeric: tabular-nums;
+    border: 1px solid rgba(255,255,255,0.12);
+  }
 
   /* controls bar */
   .controls {
@@ -57,6 +112,13 @@
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
   .play-btn:hover { background: #252525; }
+  .transport-btn {
+    min-width: 38px; height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid #333;
+    background: #1e1e1e; color: #888; cursor: pointer; font-size: 11px;
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .transport-btn:hover { background: #252525; color: #ccc; }
   .scrubber { flex: 1; height: 3px; background: #2a2a2a; border-radius: 2px; cursor: pointer; }
   .scrubber-fill { height: 100%; background: #555; border-radius: 2px; pointer-events: none; }
   .scrubber:hover .scrubber-fill { background: #888; }
@@ -85,6 +147,12 @@
   .sidebar-bottom {
     padding: 10px 14px; border-top: 1px solid #222;
     display: flex; flex-direction: column; gap: 10px;
+  }
+  .timeline-row {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .transport-row {
+    display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
   }
 
   .field { display: flex; flex-direction: column; gap: 5px; }
@@ -122,6 +190,13 @@
     transition: color 0.1s, border-color 0.1s;
   }
   .set-time-btn:hover { color: #aaa; border-color: #555; }
+  .open-aep-btn {
+    padding: 4px 8px; font-size: 11px; border-radius: 4px; border: 1px solid #333;
+    background: #1b1b1b; color: #666; cursor: pointer; white-space: nowrap;
+    transition: color 0.1s, border-color 0.1s, background 0.1s;
+  }
+  .open-aep-btn:hover { color: #bbb; border-color: #555; background: #202020; }
+  .open-aep-btn:disabled { color: #444; border-color: #2a2a2a; cursor: default; background: #181818; }
 
   .tc-input {
     width: 40px; padding: 5px 8px; font-size: 13px;
@@ -165,6 +240,43 @@
         <video ref="refVideo" :key="refKey" :src="refSrc" muted class="on-top"
                @loadedmetadata="onRefLoaded" @timeupdate="onRefTime"></video>
         <div v-if="refEnded" class="video-ended-overlay on-top" :style="refEndedStyle"></div>
+        <div class="overlay-hit-area" @pointerdown="onOverlayPointerDown"></div>
+        <div v-if="showGrid && overlayGrid" class="overlay-grid" :style="overlayGrid.style">
+          <div v-for="line in overlayGrid.verticalLines" :key="`vx-${line.value}`"
+               class="overlay-grid-line-x" :class="{ major: line.major, center: line.center }"
+               :style="{ left: line.pos + '%' }"></div>
+          <div v-for="line in overlayGrid.horizontalLines" :key="`hy-${line.value}`"
+               class="overlay-grid-line-y" :class="{ major: line.major, center: line.center }"
+               :style="{ top: line.pos + '%' }"></div>
+          <div v-for="label in overlayGrid.xLabels" :key="`xl-${label.value}`"
+               class="overlay-grid-label overlay-grid-label-x"
+               :style="{ left: label.pos + '%' }">{{ label.text }}</div>
+          <div v-for="label in overlayGrid.yLabels" :key="`yl-${label.value}`"
+               class="overlay-grid-label overlay-grid-label-y"
+               :style="{ top: label.pos + '%' }">{{ label.text }}</div>
+          <div class="overlay-grid-badge">{{ overlayGrid.badge }}</div>
+        </div>
+        <svg v-if="overlayMeasurement" class="overlay-measure" :style="overlayMeasurement.style"
+             :viewBox="`0 0 ${overlayMeasurement.width} ${overlayMeasurement.height}`"
+             preserveAspectRatio="none">
+          <line class="overlay-measure-line"
+                :x1="overlayMeasurement.x1" :y1="overlayMeasurement.y1"
+                :x2="overlayMeasurement.x2" :y2="overlayMeasurement.y2"
+                stroke="rgba(0,0,0,0.95)" stroke-width="6"></line>
+          <line class="overlay-measure-line"
+                :x1="overlayMeasurement.x1" :y1="overlayMeasurement.y1"
+                :x2="overlayMeasurement.x2" :y2="overlayMeasurement.y2"
+                stroke="#2f80ff" stroke-width="4"></line>
+        </svg>
+        <button v-if="overlayMeasurement"
+             type="button"
+             class="overlay-measure-label"
+             @pointerdown.stop
+             @mousedown.prevent
+             @click.stop="copyMeasurementValue"
+             :style="{ left: overlayMeasurement.labelLeft + 'px', top: overlayMeasurement.labelTop + 'px' }">
+          {{ overlayMeasurement.text }}
+        </button>
       </div>
 
     </template>
@@ -179,10 +291,13 @@
       <div class="sidebar-top">
         <div class="field">
           <div class="lbl">project</div>
-          <select v-model="selected" :disabled="pairs.length === 0">
-            <option disabled value="">{{ pairs.length ? 'Select…' : 'No pairs found' }}</option>
-            <option v-for="p in pairs" :key="p" :value="p">{{ p }}</option>
-          </select>
+          <div class="field-row">
+            <select v-model="selected" :disabled="pairs.length === 0" style="flex:1; min-width:0;">
+              <option disabled value="">{{ pairs.length ? 'Select…' : 'No pairs found' }}</option>
+              <option v-for="p in pairs" :key="p" :value="p">{{ p }}</option>
+            </select>
+            <button class="open-aep-btn" :disabled="!selected" @click="openAeProject">open ae</button>
+          </div>
         </div>
 
         <div class="sep-h"></div>
@@ -192,6 +307,16 @@
           <div class="btn-group">
             <button :class="{ active: mode === 'split' }"   @click="setMode('split')">split</button>
             <button :class="{ active: mode === 'overlay' }" @click="setMode('overlay')">overlay</button>
+          </div>
+        </div>
+
+        <div class="sep-h"></div>
+
+        <div class="field">
+          <div class="lbl">grid</div>
+          <div class="btn-group">
+            <button :class="{ active: showGrid }" @click="showGrid = true">on</button>
+            <button :class="{ active: !showGrid }" @click="showGrid = false">off</button>
           </div>
         </div>
 
@@ -249,20 +374,27 @@
         <div class="field">
           <div class="lbl">seek step (← →)</div>
           <div class="field-row">
-            <input type="number" v-model.number="seekStep" min="0.01" step="0.01" style="width:80px" />
-            <span class="lbl">s</span>
+            <input type="number" v-model.number="seekStepFrames" min="1" step="1" style="width:80px" />
+            <span class="lbl">frames</span>
           </div>
         </div>
       </div>
 
       <div class="sidebar-bottom">
-        <div class="controls" style="border-top:none; padding: 0;">
-          <button class="play-btn" @click="togglePlay">{{ playing ? '⏸' : '▶' }}</button>
+        <div class="timeline-row">
           <span class="time-lbl">{{ fmtTime(currentTime) }}</span>
           <div class="scrubber" @mousedown="onScrubStart">
             <div class="scrubber-fill" :style="{ width: progressPct + '%' }"></div>
           </div>
           <span class="time-lbl">{{ fmtTime(duration) }}</span>
+        </div>
+        <div class="transport-row">
+          <button class="play-btn" @click="togglePlay">{{ playing ? '⏸' : '▶' }}</button>
+          <button class="transport-btn" @click="goToStart">0</button>
+          <button class="transport-btn" @click="seekFrames(-seekStepFrames)">←{{ seekStepFrames }}f</button>
+          <button class="transport-btn" @click="seekFrames(-1)">←1f</button>
+          <button class="transport-btn" @click="seekFrames(1)">1f→</button>
+          <button class="transport-btn" @click="seekFrames(seekStepFrames)">{{ seekStepFrames }}f→</button>
         </div>
       </div>
     </div>
@@ -271,6 +403,7 @@
 
 <script>
 const { createApp, ref, computed, watch, onMounted, onUnmounted } = Vue;
+const FPS = 60;
 
 const LS = {
   get(k, def) { try { const v = localStorage.getItem(k); return v !== null ? JSON.parse(v) : def; } catch { return def; } },
@@ -285,9 +418,13 @@ createApp({
     const trimDur     = ref(LS.get("trimDur", null));
     const trimEnd     = computed(() => trimDur.value ? trimStart.value + trimDur.value : null);
     const speeds      = [0.1, 0.25, 0.5, 0.75, 1];
-    const seekStep    = ref(LS.get("seekStep", 0.5));
+    const legacySeekStep = LS.get("seekStep", null);
+    const seekStepFrames = ref(LS.get("seekStepFrames",
+      Number.isFinite(legacySeekStep) ? Math.max(1, Math.round(legacySeekStep * FPS)) : 30
+    ));
     const speed       = ref(LS.get("speed", 1));
     const mode        = ref(LS.get("mode", "split"));
+    const showGrid    = ref(LS.get("showGrid", true));
     const sidebarOpen = ref(LS.get("sidebarOpen", true));
     const sidebarWidth = ref(LS.get("sidebarWidth", 260));
     const resizing    = ref(false);
@@ -303,6 +440,23 @@ createApp({
     const refEnded    = ref(false);
     const lastEndedStyle = ref({});
     const refEndedStyle  = ref({});
+    const layoutVersion = ref(0);
+    const overlayMeasure = ref(null);
+
+    function getSavedTimelineMap() {
+      return LS.get("timelineByProject", {});
+    }
+    function getSavedTimeline(name) {
+      if (!name) return 0;
+      const map = getSavedTimelineMap();
+      return Number.isFinite(map[name]) ? map[name] : 0;
+    }
+    function saveTimeline(name, t) {
+      if (!name) return;
+      const map = getSavedTimelineMap();
+      map[name] = snapToFrame(Math.max(0, t || 0));
+      LS.set("timelineByProject", map);
+    }
 
     function videoContainRect(el) {
       if (!el) return {};
@@ -322,6 +476,7 @@ createApp({
     function updateEndedStyles() {
       if (lastEnded.value) lastEndedStyle.value = videoContainRect(lastVideo.value);
       if (refEnded.value)  refEndedStyle.value  = videoContainRect(refVideo.value);
+      layoutVersion.value += 1;
     }
 
     const lastSrc = computed(() => selected.value ? `/output/${selected.value}_last.mp4?t=${ts.value}` : "");
@@ -338,15 +493,134 @@ createApp({
     // total timeline = longest of the two sources
     const duration    = computed(() => Math.max(lastDur.value, refEffDur.value));
     const progressPct = computed(() => duration.value ? (currentTime.value / duration.value) * 100 : 0);
+    const overlayViewport = computed(() => {
+      layoutVersion.value;
+      const baseVideo = lastVideo.value?.videoWidth ? lastVideo.value : (refVideo.value?.videoWidth ? refVideo.value : null);
+      if (!baseVideo) return null;
+
+      const videoW = baseVideo.videoWidth;
+      const videoH = baseVideo.videoHeight;
+      if (!videoW || !videoH) return null;
+
+      const rect = videoContainRect(baseVideo);
+      const widthPx = parseFloat(rect.width);
+      const heightPx = parseFloat(rect.height);
+      const leftPx = parseFloat(rect.left);
+      const topPx = parseFloat(rect.top);
+      if (!widthPx || !heightPx) return null;
+
+      return {
+        videoW, videoH, widthPx, heightPx, leftPx, topPx,
+        style: rect,
+      };
+    });
+    const overlayGrid = computed(() => {
+      const viewport = overlayViewport.value;
+      if (!viewport) return null;
+
+      const { videoW, videoH, style } = viewport;
+
+      function makeMajorLines(maxValue, divisions) {
+        const out = [];
+        for (let i = 1; i < divisions; i += 1) {
+          const value = Math.round((maxValue * i) / divisions);
+          out.push({
+            value,
+            pos: (i / divisions) * 100,
+            major: true,
+            center: i === divisions / 2,
+          });
+        }
+        return out;
+      }
+
+      function makeMinorLines(majorLines, divisions) {
+        const out = [];
+        let prevPos = 0;
+        let prevValue = 0;
+        for (let i = 0; i <= majorLines.length; i += 1) {
+          const nextPos = i < majorLines.length ? majorLines[i].pos : 100;
+          const nextValue = i < majorLines.length ? majorLines[i].value : divisions.maxValue;
+          out.push({
+            value: Math.round((prevValue + nextValue) / 2),
+            pos: (prevPos + nextPos) / 2,
+            major: false,
+            center: false,
+          });
+          prevPos = nextPos;
+          prevValue = nextValue;
+        }
+        return out;
+      }
+
+      function makeLabels(maxValue, divisions) {
+        const out = [];
+        for (let i = 0; i <= divisions; i += 1) {
+          const value = Math.round((maxValue * i) / divisions);
+          out.push({ value, pos: (i / divisions) * 100, text: String(value) });
+        }
+        return out;
+      }
+
+      const verticalMajor = makeMajorLines(videoW, 6);
+      verticalMajor.maxValue = videoW;
+      const horizontalMajor = makeMajorLines(videoH, 6);
+      horizontalMajor.maxValue = videoH;
+
+      return {
+        style,
+        verticalLines: [...makeMinorLines(verticalMajor, verticalMajor), ...verticalMajor]
+          .sort((a, b) => a.pos - b.pos),
+        horizontalLines: [...makeMinorLines(horizontalMajor, horizontalMajor), ...horizontalMajor]
+          .sort((a, b) => a.pos - b.pos),
+        xLabels: makeLabels(videoW, 6),
+        yLabels: makeLabels(videoH, 6),
+        badge: `${videoW} x ${videoH}px`,
+      };
+    });
+    const overlayMeasurement = computed(() => {
+      const viewport = overlayViewport.value;
+      const measure = overlayMeasure.value;
+      if (!viewport || !measure) return null;
+
+      const x1 = (measure.startX / viewport.videoW) * viewport.widthPx;
+      const y1 = (measure.startY / viewport.videoH) * viewport.heightPx;
+      const x2 = (measure.endX / viewport.videoW) * viewport.widthPx;
+      const y2 = (measure.endY / viewport.videoH) * viewport.heightPx;
+      const midX = (x1 + x2) / 2;
+      const midY = (y1 + y2) / 2 - 18;
+      const dx = measure.endX - measure.startX;
+      const dy = measure.endY - measure.startY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      return {
+        style: viewport.style,
+        width: viewport.widthPx,
+        height: viewport.heightPx,
+        x1, y1, x2, y2,
+        labelLeft: viewport.leftPx + clamp(midX, 36, viewport.widthPx - 36),
+        labelTop: viewport.topPx + clamp(midY, 24, viewport.heightPx - 24),
+        text: `${Math.round(distance)} px`,
+        value: Math.round(distance),
+      };
+    });
 
     watch(selected,     v => LS.set("selected", v));
     watch(trimStart,    v => LS.set("trimStart", v));
     watch(trimDur,      v => LS.set("trimDur", v));
     watch(speed,        v => LS.set("speed", v));
     watch(mode,         v => LS.set("mode", v));
+    watch(showGrid,     v => LS.set("showGrid", v));
     watch(sidebarOpen,  v => LS.set("sidebarOpen", v));
     watch(sidebarWidth, v => LS.set("sidebarWidth", v));
-    watch(seekStep,     v => LS.set("seekStep", v));
+    watch(seekStepFrames, v => seekStepFrames.value = Math.max(1, Math.round(v || 1)));
+    watch(seekStepFrames, v => LS.set("seekStepFrames", v));
+    watch(currentTime,  v => saveTimeline(selected.value, v));
+    watch(selected, v => {
+      const t = getSavedTimeline(v);
+      masterTime = t;
+      currentTime.value = t;
+    });
 
     function setSpeed(s) {
       speed.value = s;
@@ -356,15 +630,16 @@ createApp({
     function applySpeed(v) { if (v) v.playbackRate = speed.value; }
     function syncRef() {} // kept for compat, logic moved to applyMasterTime
 
-    const FPS = 60;
+    function tcFrames(s) { return Math.max(0, Math.round((s || 0) * FPS)); }
     // seconds → whole seconds part
-    function tcSec(s) { return Math.floor(s); }
+    function tcSec(s) { return Math.floor(tcFrames(s) / FPS); }
     // seconds → frames part (0..FPS-1)
-    function tcFr(s)  { return Math.round((s - Math.floor(s)) * FPS) % FPS; }
+    function tcFr(s)  { return tcFrames(s) % FPS; }
     // whole secs + frames → seconds
     function tcToSec(s, f) { return Math.max(0, s) + Math.max(0, Math.min(f, FPS - 1)) / FPS; }
     // snap raw seconds to nearest frame
     function snapToFrame(s) { return Math.round(s * FPS) / FPS; }
+    const FRAME_SYNC_EPSILON = 0.5 / FPS;
 
     function setTrimStart() {
       trimStart.value = snapToFrame(masterTime);
@@ -378,6 +653,14 @@ createApp({
     let masterTime = 0;
     let rafId = null;
     let lastRafTs = null;
+
+    function restorePlaybackPosition() {
+      if (!selected.value) return;
+      const total = duration.value;
+      const saved = getSavedTimeline(selected.value);
+      const t = snapToFrame(total > 0 ? Math.min(saved, total) : saved);
+      applyMasterTime(t);
+    }
 
     function applyMasterTime(t) {
       masterTime = t;
@@ -395,7 +678,7 @@ createApp({
           }
         } else {
           lastEnded.value = false;
-          if (Math.abs(lv.currentTime - t) > 0.08) lv.currentTime = t;
+          if (Math.abs(lv.currentTime - t) > FRAME_SYNC_EPSILON) lv.currentTime = t;
         }
       }
 
@@ -409,7 +692,7 @@ createApp({
         } else {
           refEnded.value = false;
           const refPos = trimStart.value + t;
-          if (Math.abs(rv.currentTime - refPos) > 0.08) rv.currentTime = refPos;
+          if (Math.abs(rv.currentTime - refPos) > FRAME_SYNC_EPSILON) rv.currentTime = refPos;
         }
       }
     }
@@ -450,23 +733,142 @@ createApp({
         playing.value = true; startRaf();
       }
     }
+    function pausePlayback() {
+      if (!playing.value) return;
+      lastVideo.value?.pause();
+      refVideo.value?.pause();
+      playing.value = false;
+      stopRaf();
+    }
+    function clamp(v, min, max) {
+      return Math.max(min, Math.min(max, v));
+    }
+    function clientToVideoPoint(clientX, clientY) {
+      const viewport = overlayViewport.value;
+      if (!viewport) return null;
+      const localX = clamp(clientX - viewport.leftPx, 0, viewport.widthPx);
+      const localY = clamp(clientY - viewport.topPx, 0, viewport.heightPx);
+      return {
+        x: Math.round((localX / viewport.widthPx) * viewport.videoW),
+        y: Math.round((localY / viewport.heightPx) * viewport.videoH),
+      };
+    }
+    function pointInVideo(clientX, clientY) {
+      const viewport = overlayViewport.value;
+      if (!viewport) return false;
+      return clientX >= viewport.leftPx && clientX <= viewport.leftPx + viewport.widthPx
+          && clientY >= viewport.topPx && clientY <= viewport.topPx + viewport.heightPx;
+    }
+    function applyMeasureSnap(start, end, shiftKey) {
+      if (!shiftKey) return end;
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      if (Math.abs(dx) >= Math.abs(dy)) return { x: end.x, y: start.y };
+      return { x: start.x, y: end.y };
+    }
+    function pointNearMeasurement(clientX, clientY) {
+      const viewport = overlayViewport.value;
+      const measure = overlayMeasure.value;
+      if (!viewport || !measure) return false;
+
+      const x1 = viewport.leftPx + (measure.startX / viewport.videoW) * viewport.widthPx;
+      const y1 = viewport.topPx + (measure.startY / viewport.videoH) * viewport.heightPx;
+      const x2 = viewport.leftPx + (measure.endX / viewport.videoW) * viewport.widthPx;
+      const y2 = viewport.topPx + (measure.endY / viewport.videoH) * viewport.heightPx;
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const lenSq = dx * dx + dy * dy;
+      const hitRadius = 12;
+
+      if (lenSq === 0) {
+        const dist = Math.hypot(clientX - x1, clientY - y1);
+        return dist <= hitRadius;
+      }
+
+      const t = clamp(((clientX - x1) * dx + (clientY - y1) * dy) / lenSq, 0, 1);
+      const projX = x1 + t * dx;
+      const projY = y1 + t * dy;
+      return Math.hypot(clientX - projX, clientY - projY) <= hitRadius;
+    }
+    function onOverlayPointerMove(e) {
+      if (!overlayMeasure.value?.active) return;
+      const point = clientToVideoPoint(e.clientX, e.clientY);
+      if (!point) return;
+      const snapped = applyMeasureSnap(
+        { x: overlayMeasure.value.startX, y: overlayMeasure.value.startY },
+        point,
+        e.shiftKey
+      );
+      overlayMeasure.value = {
+        ...overlayMeasure.value,
+        endX: snapped.x,
+        endY: snapped.y,
+      };
+    }
+    function onOverlayPointerUp() {
+      if (!overlayMeasure.value) return;
+      overlayMeasure.value = { ...overlayMeasure.value, active: false };
+      window.removeEventListener("pointermove", onOverlayPointerMove);
+      window.removeEventListener("pointerup", onOverlayPointerUp);
+    }
+    function onOverlayPointerDown(e) {
+      if (mode.value !== "overlay" || !pointInVideo(e.clientX, e.clientY)) return;
+      if (overlayMeasure.value && !overlayMeasure.value.active && !pointNearMeasurement(e.clientX, e.clientY)) {
+        overlayMeasure.value = null;
+        return;
+      }
+      const point = clientToVideoPoint(e.clientX, e.clientY);
+      if (!point) return;
+      overlayMeasure.value = {
+        startX: point.x,
+        startY: point.y,
+        endX: point.x,
+        endY: point.y,
+        active: true,
+      };
+      window.addEventListener("pointermove", onOverlayPointerMove);
+      window.addEventListener("pointerup", onOverlayPointerUp);
+    }
+    async function copyMeasurementValue() {
+      const value = overlayMeasurement.value?.value;
+      if (value == null) return;
+      const text = `${value} px`;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+    }
+    async function openAeProject() {
+      if (!selected.value) return;
+      await fetch(`/api/open-aep?name=${encodeURIComponent(selected.value)}`, { method: "POST" });
+    }
 
     function onLastLoaded() {
       const v = lastVideo.value; if (!v) return;
       lastDur.value = v.duration; applySpeed(v);
       lastEnded.value = false;
       v.pause(); playing.value = false; stopRaf();
-      masterTime = 0; currentTime.value = 0;
+      layoutVersion.value += 1;
       ro?.observe(v);
+      restorePlaybackPosition();
     }
     function onRefLoaded() {
       const rv = refVideo.value; if (!rv) return;
       refNatDur.value = rv.duration;
       applySpeed(rv);
-      rv.currentTime = trimStart.value;
       rv.pause();
       refEnded.value = false;
+      layoutVersion.value += 1;
       ro?.observe(rv);
+      restorePlaybackPosition();
     }
     function onLastTime() {
       // no-op: timing is now driven by RAF master clock
@@ -476,12 +878,15 @@ createApp({
     }
 
     function fmtTime(t) {
-      if (!t) return "0:00";
-      return `${Math.floor(t / 60)}:${Math.floor(t % 60).toString().padStart(2, "0")}`;
+      return `${tcSec(t)}s ${tcFr(t).toString().padStart(2, "0")}f`;
     }
     function fmt2(v) { return (Math.round((v || 0) * 100) / 100).toFixed(2); }
+    function framesToSeconds(frames) {
+      return Math.round(frames || 0) / FPS;
+    }
 
     function onScrubStart(e) {
+      pausePlayback();
       scrubTo(e);
       const onMove = e2 => scrubTo(e2);
       const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
@@ -526,15 +931,23 @@ createApp({
     }
 
     function seek(delta) {
-      const t = Math.max(0, Math.min(duration.value, masterTime + delta));
+      const t = snapToFrame(Math.max(0, Math.min(duration.value, masterTime + delta)));
       applyMasterTime(t);
+    }
+    function goToStart() {
+      pausePlayback();
+      applyMasterTime(0);
+    }
+    function seekFrames(frames) {
+      pausePlayback();
+      seek(framesToSeconds(frames));
     }
 
     function onKeyDown(e) {
       if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
       if (e.code === "Space") { e.preventDefault(); togglePlay(); }
-      if (e.code === "ArrowLeft")  { e.preventDefault(); seek(-seekStep.value); }
-      if (e.code === "ArrowRight") { e.preventDefault(); seek(seekStep.value); }
+      if (e.code === "ArrowLeft")  { e.preventDefault(); seekFrames(-seekStepFrames.value); }
+      if (e.code === "ArrowRight") { e.preventDefault(); seekFrames(seekStepFrames.value); }
     }
 
     let ro = null;
@@ -542,16 +955,23 @@ createApp({
       fetchPairs(); connectSSE(); window.addEventListener("keydown", onKeyDown);
       ro = new ResizeObserver(updateEndedStyles);
     });
-    onUnmounted(() => { es?.close(); window.removeEventListener("keydown", onKeyDown); stopRaf(); ro?.disconnect(); });
+    onUnmounted(() => {
+      es?.close();
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointermove", onOverlayPointerMove);
+      window.removeEventListener("pointerup", onOverlayPointerUp);
+      stopRaf();
+      ro?.disconnect();
+    });
 
     return {
-      pairs, selected, trimStart, trimDur, speeds, speed, setSpeed, seekStep,
+      pairs, selected, trimStart, trimDur, speeds, speed, setSpeed, seekStepFrames,
       FPS, tcSec, tcFr, tcToSec, setTrimStart, setTrimDur,
-      mode, setMode, sidebarOpen, sidebarWidth, resizing, onResizerDown,
+      mode, setMode, showGrid, sidebarOpen, sidebarWidth, resizing, onResizerDown,
       lastSrc, refSrc, refKey, lastVideo, refVideo,
-      playing, currentTime, duration, progressPct,
+      playing, currentTime, duration, progressPct, overlayGrid, overlayMeasurement,
       lastEnded, refEnded, lastEndedStyle, refEndedStyle,
-      togglePlay, onLastLoaded, onRefLoaded, onLastTime, onRefTime,
+      togglePlay, goToStart, seekFrames, onLastLoaded, onRefLoaded, onLastTime, onRefTime, onOverlayPointerDown, copyMeasurementValue, openAeProject,
       fmtTime, fmt2, onScrubStart,
     };
   }

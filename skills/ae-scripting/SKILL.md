@@ -123,13 +123,35 @@ npm run render android_show_1
 # then check the browser — UI auto-refreshes
 ```
 
+## Sub-comps
+
+Create a sub-comp first, then add it to the parent with `comp.layers.add()`:
+
+```jsx
+var logoComp = app.project.items.addComp("logo", 200, 200, 1, tFall, 60);
+// ... build shapes inside logoComp ...
+
+var mainComp = app.project.items.addComp("android_show_1", 1920, 1080, 1, 1.4, 60);
+var logoLayer = mainComp.layers.add(logoComp);
+logoLayer.outPoint = tFall;
+logoLayer.property("Transform").property("Position").setValueAtTime(0, [960, 540]);
+```
+
+Pattern: shape/style lives in sub-comp, animation (position, in/outPoint) lives in parent.
+
 ## Gotchas
 
-See [[ae-extendscript-gotchas]] for a full list of known traps. Most critical ones:
+See [[ae-extendscript-gotchas]] for the full list — **update it whenever you hit a new API trap** so it doesn't happen again. Most critical ones:
 - Add all sub-properties before fetching refs to animate (refs invalidate after `addProperty`)
 - `setTemporalEaseAtKey` always takes `[ease]` — exactly 1 element, even for 2D properties
 - `Roundness` on rect paths is not keyframeable — use `setValue` only
-- Test scripts with the debug wrapper before running the full render pipeline
+- `addComp` width/height must be integers — always `Math.round()` calculated dimensions
+- Test scripts with the debug wrapper before running the full render pipeline:
+  ```bash
+  osascript -e 'tell application "Adobe After Effects 2026" to DoScriptFile "/tmp/ae_debug_runner.jsx"'
+  sleep 8 && cat /tmp/ae_debug_out.txt
+  # expect: OK
+  ```
 
 ## Tips
 

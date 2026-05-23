@@ -29,15 +29,23 @@ This applies to any nesting level: layer contents, group contents, effect proper
 
 ---
 
-## 2. `setTemporalEaseAtKey` always takes exactly 1 ease per array
+## 2. `setTemporalEaseAtKey` — количество элементов зависит от версии AE
 
-Regardless of the property's dimensions (1D, 2D, 3D), the ease arrays must have **exactly 1 element**.
+Количество элементов в массиве ease **зависит от версии AE и типа свойства**:
+
+- AE 2025 и ниже: **1 элемент** для любого свойства
+- AE 2026: **3 элемента** для Scale (2D), **1 элемент** для Rotation (1D), Position (2D)
+
+Ошибка "Value array does not have N elements" говорит сколько нужно.
 
 ```jsx
-// WRONG — AE says "Value array does not have 1 elements"
-posProp.setTemporalEaseAtKey(1, [eIn, eIn], [eOut, eOut]); // Position is 2D
+// Rotation (1D) — всегда 1 элемент
+rotProp.setTemporalEaseAtKey(1, [eIn], [eOut]);
 
-// CORRECT
+// Scale (2D) в AE 2026 — 3 элемента
+scaleProp.setTemporalEaseAtKey(1, [eIn, eIn, eIn], [eOut, eOut, eOut]);
+
+// Position (2D) — 1 элемент (проверено в AE 2026)
 posProp.setTemporalEaseAtKey(1, [eIn], [eOut]);
 ```
 
@@ -45,10 +53,9 @@ Signature:
 ```jsx
 property.setTemporalEaseAtKey(keyIndex, easeIn_array, easeOut_array);
 // keyIndex is 1-based
-// each array = [KeyframeEase] — always length 1
 ```
 
-`KeyframeEase(speed, influence)` — speed 0 = slow, 100 = fast; influence 0–100 (% of segment):
+`KeyframeEase(speed, influence)` — speed 0 = slow, 100 = fast; influence **0.1–100** (% of segment, minimum 0.1 — passing 0 throws range error):
 ```jsx
 var easeIn  = new KeyframeEase(0,   80); // slow start
 var easeOut = new KeyframeEase(100, 80); // fast arrival
@@ -89,9 +96,13 @@ TMP_JSX="/tmp/ae_runner.jsx"
 
 ---
 
-## 5. Script errors are silent — AE saves no .aep and aerender fails
+## 5. Script errors are silent — AE shows a dialog, pipeline uses stale .aep
 
-If the JSX throws, `app.project.save()` never runs, the .aep file doesn't exist, and aerender reports:
+If the JSX throws, AE shows an error **dialog** (not logged anywhere). AppleScript returns exit code `1` instead of `0`. The pipeline doesn't stop — it falls through to aerender using the **stale `.aep`** from the previous successful build. Result: render "succeeds" but outputs old content.
+
+**Watch for `1` on the build stage output line** — if Stage 1 prints `1`, the jsx errored and the render is invalid.
+
+If the `.aep` doesn't exist yet, aerender reports:
 ```
 Unable to call "openFast" because of parameter 1. Path is not valid.
 ```
@@ -158,6 +169,130 @@ var frames = 84;                     // exact frame count you want
 var duration = frames / fps;         // 1.4s = exactly 84 frames at 60fps
 var comp = app.project.items.addComp("name", 1920, 1080, 1, duration, fps);
 ```
+
+---
+
+## 9. `addComp` width and height must be integers
+
+Passing a float throws immediately:
+```
+After Effects error: Unable to call "addComp" because of parameter 3. 928.8 is not an integer.
+```
+
+Always `Math.round()` any calculated dimensions:
+```jsx
+var margin  = H * 0.07;
+var phoneH  = Math.round(H - margin * 2);  // not just H - margin * 2
+var phoneW  = Math.round(phoneH * 9 / 19.5);
+var comp = app.project.items.addComp("name", W, phoneH, 1, dur, fps);
+```
+
+This applies to all four numeric parameters: width, height — they must be whole integers.
+
+---
+
+## 10. Sub-comp duration must cover only what the layer needs
+
+When creating a sub-comp that will be used as a layer with `inPoint`/`outPoint` in the parent, size the sub-comp duration to match only its own content — not the full parent duration:
+
+```jsx
+// logo sub-comp: only plays until tFall
+var logoComp = app.project.items.addComp("logo", side, side, 1, tFall, 60);
+
+// phone sub-comp: plays from tFall to end
+var phoneComp = app.project.items.addComp("phone-frame", phoneW, phoneH, 1, 1.4 - tFall, 60);
+
+// parent controls when each appears/disappears via inPoint/outPoint
+logoLayer.outPoint = tFall;
+phoneLayer.inPoint  = tFall;
+```
+
+---
+
+## 11. SVG imports as raster footage — use PNG instead
+
+AE imports SVG via `importFile` but renders it as a flat rasterized bitmap — the shape/transparency info from the SVG is lost, result is a solid square. **Convert to PNG first:**
+
+```bash
+# rsvg-convert (brew install librsvg) — preserves alpha
+rsvg-convert -w 400 -h 400 icon.svg -o icon.png
+```
+
+Use 2× the display size for sharpness (e.g. display at 200px → export PNG at 400px, then scale to 50% in AE).
+
+Then import the PNG normally:
+
+```jsx
+var pngItem = app.project.importFile(new ImportOptions(new File("/path/icon.png")));
+var layer = comp.layers.add(pngItem);
+// PNG is 400×400, display at 100px = 25%
+layer.property("Transform").property("Scale").setValue([25, 25]);
+layer.property("Transform").property("Position").setValue([compW / 2, compH / 2]);
+```
+
+## 12. Effects: adding by display name, getting matchNames, animating properties
+
+Add effects via `layer.Effects.addProperty("matchName")`. After adding, re-fetch property refs (same invalidation rule as #1):
+
+```jsx
+// Add all effects first
+var gaussBlur = eff.addProperty("ADBE Gaussian Blur 2");
+var dirBlur   = eff.addProperty("ADBE Motion Blur");
+var bc        = eff.addProperty("ADBE Brightness & Contrast");
+
+// Then animate — fetch property by matchName
+gaussBlur.property("ADBE Gaussian Blur 2-0001").setValueAtTime(0,     0);
+gaussBlur.property("ADBE Gaussian Blur 2-0001").setValueAtTime(tEnd, 40);
+```
+
+**Known matchNames:**
+
+| Effect | matchName | Key properties |
+|---|---|---|
+| Gaussian Blur | `ADBE Gaussian Blur 2` | `ADBE Gaussian Blur 2-0001` (Blurriness) |
+| Directional Blur | `ADBE Motion Blur` | `ADBE Motion Blur-0001` (Direction°: **0=vertical**, 90=horizontal), `ADBE Motion Blur-0002` (Blur Length) |
+| Brightness & Contrast | `ADBE Brightness & Contrast` | `ADBE Brightness & Contrast-0001` (Brightness, range −100..100), `ADBE Brightness & Contrast-0002` (Contrast) |
+| Fast Box Blur | `ADBE Box Blur2` | — |
+
+**Brightness max is 100**, not unlimited — `setValueAtTime(..., 120)` throws range error.
+
+---
+
+## 13. Motion blur is a layer toggle, not an effect
+
+There's no "Motion Blur" effect to add via `addProperty`. It's a layer-level flag:
+
+```jsx
+layer.motionBlur = true;
+comp.motionBlurAdaptiveSampleLimit = 16; // optional quality setting
+// Also make sure aerender uses -RStemplate "Best Settings" which enables MB
+```
+
+For directional/velocity blur as an **animatable effect**, use `ADBE Motion Blur` (Directional Blur) instead.
+
+---
+
+### SVG import via `importFile` (kept for reference — but use PNG above)
+
+AE 2022+ can import SVG as footage via ExtendScript:
+
+```jsx
+var svgFile = new File("/abs/path/to/icon.svg");
+var svgItem = app.project.importFile(new ImportOptions(svgFile));
+var svgLayer = comp.layers.add(svgItem);
+
+// Scale to fit — SVG renders at its native viewBox size (e.g. 65×65)
+// comp is 200×200, so scale = (200/65)*100 = 307.7%
+var svgScale = (compSize / svgNativeSize) * 100;
+svgLayer.property("Transform").property("Scale").setValue([svgScale, svgScale]);
+svgLayer.property("Transform").property("Position").setValue([compW / 2, compH / 2]);
+```
+
+Wrong constructor (`ImportOptions(file)` without `new`) throws:
+```
+Unable to call "importFile" because of parameter 1. undefined is not of the correct type.
+```
+Always use `new ImportOptions(file)`.
 
 ---
 

@@ -1,4 +1,5 @@
 const http = require("http");
+const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -16,7 +17,8 @@ const MIME = {
 // SSE clients for auto-refresh
 const sseClients = new Set();
 
-fs.watch(OUTPUT_DIR, { persistent: true }, () => {
+fs.watch(OUTPUT_DIR, { persistent: true }, (_eventType, filename) => {
+  if (!filename || path.extname(filename.toString()) !== ".mp4") return;
   for (const res of sseClients) {
     res.write("data: refresh\n\n");
   }
@@ -60,6 +62,31 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/pairs") {
     res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
     res.end(JSON.stringify(getVideoPairs()));
+    return;
+  }
+
+  if (url.pathname === "/api/open-aep") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { "Access-Control-Allow-Origin": "*" });
+      res.end();
+      return;
+    }
+    const name = path.basename(url.searchParams.get("name") || "");
+    const file = path.join(OUTPUT_DIR, `${name}.aep`);
+    if (!name || !fs.existsSync(file)) {
+      res.writeHead(404, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify({ ok: false, error: "AEP not found" }));
+      return;
+    }
+    execFile("open", [file], err => {
+      if (err) {
+        res.writeHead(500, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ ok: false, error: "Failed to open AEP" }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify({ ok: true }));
+    });
     return;
   }
 
