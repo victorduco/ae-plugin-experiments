@@ -35,6 +35,7 @@
   .video-cell { display: flex; flex-direction: row; background: #111; overflow: hidden; align-items: stretch; min-height: 0; }
   .video-wrap { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; display: flex; }
   .video-wrap video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  .video-ended-overlay { position: absolute; background: #f00; pointer-events: none; }
 
   /* overlay */
   .videos-overlay {
@@ -42,6 +43,8 @@
   }
   .videos-overlay video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .videos-overlay video.on-top { opacity: 0.5; }
+  .videos-overlay .video-ended-overlay { z-index: 2; }
+  .videos-overlay .video-ended-overlay.on-top { opacity: 0.5; }
 
   /* controls bar */
   .controls {
@@ -96,12 +99,12 @@
   }
   select:focus { border-color: #555; }
 
-  input[type="number"] {
+  input[type="number"], input[type="text"] {
     width: 64px; padding: 5px 8px; font-size: 13px;
     background: #1e1e1e; color: #eee; border: 1px solid #333;
-    border-radius: 5px; outline: none;
+    border-radius: 5px; outline: none; font-family: inherit;
   }
-  input[type="number"]:focus { border-color: #555; }
+  input[type="number"]:focus, input[type="text"]:focus { border-color: #555; }
   input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
 
   .btn-group { display: flex; gap: 3px; flex-wrap: wrap; }
@@ -112,6 +115,21 @@
   .btn-group button.active { background: #2a2a2a; color: #eee; border-color: #555; }
 
   .sep-h { height: 1px; background: #222; }
+
+  .set-time-btn {
+    padding: 3px 7px; font-size: 11px; border-radius: 4px; border: 1px solid #333;
+    background: #1e1e1e; color: #555; cursor: pointer; white-space: nowrap;
+    transition: color 0.1s, border-color 0.1s;
+  }
+  .set-time-btn:hover { color: #aaa; border-color: #555; }
+
+  .tc-input {
+    width: 40px; padding: 5px 8px; font-size: 13px;
+    background: #1e1e1e; color: #eee; border: 1px solid #333;
+    border-radius: 5px; outline: none; font-family: inherit; text-align: center;
+  }
+  .tc-input:focus { border-color: #555; }
+  .tc-sep { font-size: 13px; color: #444; }
 </style>
 </head>
 <body>
@@ -127,12 +145,14 @@
           <div class="video-wrap">
             <video ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
                    @loadedmetadata="onLastLoaded" @timeupdate="onLastTime"></video>
+            <div v-if="lastEnded" class="video-ended-overlay" :style="lastEndedStyle"></div>
           </div>
         </div>
         <div class="video-cell">
           <div class="video-wrap">
             <video ref="refVideo" :key="refKey" :src="refSrc" muted
                    @loadedmetadata="onRefLoaded"></video>
+            <div v-if="refEnded" class="video-ended-overlay" :style="refEndedStyle"></div>
           </div>
         </div>
       </div>
@@ -141,8 +161,10 @@
       <div v-else class="videos-overlay">
         <video ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
                @loadedmetadata="onLastLoaded" @timeupdate="onLastTime"></video>
+        <div v-if="lastEnded" class="video-ended-overlay" :style="lastEndedStyle"></div>
         <video ref="refVideo" :key="refKey" :src="refSrc" muted class="on-top"
                @loadedmetadata="onRefLoaded" @timeupdate="onRefTime"></video>
+        <div v-if="refEnded" class="video-ended-overlay on-top" :style="refEndedStyle"></div>
       </div>
 
     </template>
@@ -176,13 +198,40 @@
         <div class="sep-h"></div>
 
         <div class="field">
-          <div class="lbl">ref trim</div>
+          <div class="lbl">ref trim start</div>
           <div class="field-row">
-            <span class="lbl">start</span>
-            <input type="number" v-model.number="trimStart" min="0" step="0.01" placeholder="0" />
-            <span class="lbl">dur</span>
-            <input type="number" v-model.number="trimDur" min="0" step="0.01" placeholder="∞" />
-            <span class="lbl">s</span>
+            <input class="tc-input" type="number" min="0" step="1"
+                   :value="tcSec(trimStart)"
+                   @change="e => trimStart = tcToSec(+e.target.value, tcFr(trimStart))"
+                   @blur="e => e.target.value = tcSec(trimStart)" />
+            <span class="tc-sep">s</span>
+            <input class="tc-input" type="number" min="0" :max="FPS-1" step="1"
+                   :value="tcFr(trimStart)"
+                   @change="e => trimStart = tcToSec(tcSec(trimStart), Math.min(+e.target.value, FPS-1))"
+                   @blur="e => e.target.value = tcFr(trimStart)" />
+            <span class="tc-sep">f</span>
+            <button class="set-time-btn" @click="setTrimStart" title="set to current time">↙ now</button>
+          </div>
+        </div>
+
+        <div class="sep-h"></div>
+
+        <div class="field">
+          <div class="lbl">ref trim duration</div>
+          <div class="field-row">
+            <input class="tc-input" type="number" min="0" step="1"
+                   :value="trimDur != null ? tcSec(trimDur) : ''"
+                   @change="e => trimDur = tcToSec(+e.target.value, trimDur != null ? tcFr(trimDur) : 0)"
+                   @blur="e => e.target.value = trimDur != null ? tcSec(trimDur) : ''"
+                   placeholder="∞" />
+            <span class="tc-sep">s</span>
+            <input class="tc-input" type="number" min="0" :max="FPS-1" step="1"
+                   :value="trimDur != null ? tcFr(trimDur) : ''"
+                   @change="e => { if (trimDur == null) trimDur = 0; trimDur = tcToSec(tcSec(trimDur), Math.min(+e.target.value, FPS-1)); }"
+                   @blur="e => e.target.value = trimDur != null ? tcFr(trimDur) : ''"
+                   placeholder="∞" />
+            <span class="tc-sep">f</span>
+            <button class="set-time-btn" @click="setTrimDur" title="set so current frame is last">↙ now</button>
           </div>
         </div>
 
@@ -248,11 +297,46 @@ createApp({
     const refVideo    = ref(null);
     const playing     = ref(false);
     const currentTime = ref(0);
-    const duration    = ref(0);
+    const lastDur     = ref(0);
+    const refNatDur   = ref(0);  // natural duration of ref file
+    const lastEnded   = ref(false);
+    const refEnded    = ref(false);
+    const lastEndedStyle = ref({});
+    const refEndedStyle  = ref({});
+
+    function videoContainRect(el) {
+      if (!el) return {};
+      const cw = el.clientWidth, ch = el.clientHeight;
+      const vw = el.videoWidth,  vh = el.videoHeight;
+      if (!vw || !vh) return { left: 0, top: 0, width: cw + 'px', height: ch + 'px' };
+      const scale = Math.min(cw / vw, ch / vh);
+      const rw = vw * scale, rh = vh * scale;
+      return {
+        left:   Math.round((cw - rw) / 2) + 'px',
+        top:    Math.round((ch - rh) / 2) + 'px',
+        width:  Math.round(rw) + 'px',
+        height: Math.round(rh) + 'px',
+      };
+    }
+
+    function updateEndedStyles() {
+      if (lastEnded.value) lastEndedStyle.value = videoContainRect(lastVideo.value);
+      if (refEnded.value)  refEndedStyle.value  = videoContainRect(refVideo.value);
+    }
 
     const lastSrc = computed(() => selected.value ? `/output/${selected.value}_last.mp4?t=${ts.value}` : "");
     const refSrc  = computed(() => selected.value ? `/output/${selected.value}_ref.mp4?t=${ts.value}` : "");
     const refKey  = computed(() => `${refSrc.value}-${trimStart.value}-${trimDur.value}`);
+
+    // effective ref duration = trimDur if set, else natural duration minus trimStart
+    const refEffDur = computed(() => {
+      if (!refNatDur.value) return 0;
+      if (trimDur.value) return trimDur.value;
+      return Math.max(0, refNatDur.value - trimStart.value);
+    });
+
+    // total timeline = longest of the two sources
+    const duration    = computed(() => Math.max(lastDur.value, refEffDur.value));
     const progressPct = computed(() => duration.value ? (currentTime.value / duration.value) * 100 : 0);
 
     watch(selected,     v => LS.set("selected", v));
@@ -270,54 +354,132 @@ createApp({
     }
     function setMode(m) { mode.value = m; }
     function applySpeed(v) { if (v) v.playbackRate = speed.value; }
+    function syncRef() {} // kept for compat, logic moved to applyMasterTime
 
-    function syncRef() {
+    const FPS = 60;
+    // seconds → whole seconds part
+    function tcSec(s) { return Math.floor(s); }
+    // seconds → frames part (0..FPS-1)
+    function tcFr(s)  { return Math.round((s - Math.floor(s)) * FPS) % FPS; }
+    // whole secs + frames → seconds
+    function tcToSec(s, f) { return Math.max(0, s) + Math.max(0, Math.min(f, FPS - 1)) / FPS; }
+    // snap raw seconds to nearest frame
+    function snapToFrame(s) { return Math.round(s * FPS) / FPS; }
+
+    function setTrimStart() {
+      trimStart.value = snapToFrame(masterTime);
+    }
+    function setTrimDur() {
+      const d = snapToFrame(masterTime - trimStart.value);
+      trimDur.value = d > 0 ? d : 0;
+    }
+
+    // masterTime: 0..totalDuration, drives both videos and the scrubber
+    let masterTime = 0;
+    let rafId = null;
+    let lastRafTs = null;
+
+    function applyMasterTime(t) {
+      masterTime = t;
+      currentTime.value = t;
+
       const lv = lastVideo.value;
       const rv = refVideo.value;
-      if (!lv || !rv) return;
-      // ref always mirrors last's position, offset by trimStart into ref clip
-      const refDur = trimDur.value ? trimDur.value : rv.duration;
-      const refPos = trimStart.value + (lv.currentTime % refDur);
-      if (Math.abs(rv.currentTime - refPos) > 0.08) rv.currentTime = refPos;
+
+      // --- last video ---
+      if (lv && lastDur.value > 0) {
+        if (t >= lastDur.value) {
+          if (!lastEnded.value) {
+            lv.pause(); lastEnded.value = true;
+            lastEndedStyle.value = videoContainRect(lv);
+          }
+        } else {
+          lastEnded.value = false;
+          if (Math.abs(lv.currentTime - t) > 0.08) lv.currentTime = t;
+        }
+      }
+
+      // --- ref video ---
+      if (rv && refEffDur.value > 0) {
+        if (t >= refEffDur.value) {
+          if (!refEnded.value) {
+            rv.pause(); refEnded.value = true;
+            refEndedStyle.value = videoContainRect(rv);
+          }
+        } else {
+          refEnded.value = false;
+          const refPos = trimStart.value + t;
+          if (Math.abs(rv.currentTime - refPos) > 0.08) rv.currentTime = refPos;
+        }
+      }
     }
+
+    function rafTick(ts) {
+      if (lastRafTs !== null) {
+        const dt = (ts - lastRafTs) / 1000 * speed.value;
+        const total = duration.value;
+        if (total > 0) {
+          let next = masterTime + dt;
+          if (next >= total) {
+            // loop: restart everything
+            next = 0;
+            lastEnded.value = false;
+            refEnded.value = false;
+            const lv = lastVideo.value;
+            const rv = refVideo.value;
+            if (lv) { lv.currentTime = 0; lv.play().catch(() => {}); }
+            if (rv) { rv.currentTime = trimStart.value; rv.play().catch(() => {}); }
+          }
+          applyMasterTime(next);
+        }
+      }
+      lastRafTs = ts;
+      rafId = requestAnimationFrame(rafTick);
+    }
+
+    function startRaf() { if (!rafId) { lastRafTs = null; rafId = requestAnimationFrame(rafTick); } }
+    function stopRaf()  { if (rafId) { cancelAnimationFrame(rafId); rafId = null; lastRafTs = null; } }
 
     function togglePlay() {
       const lv = lastVideo.value; const rv = refVideo.value;
       if (playing.value) {
-        lv?.pause(); rv?.pause(); playing.value = false;
+        lv?.pause(); rv?.pause(); playing.value = false; stopRaf();
       } else {
-        lv?.play(); rv?.play(); playing.value = true;
+        if (!lastEnded.value) lv?.play().catch(() => {});
+        if (!refEnded.value)  rv?.play().catch(() => {});
+        playing.value = true; startRaf();
       }
     }
 
     function onLastLoaded() {
       const v = lastVideo.value; if (!v) return;
-      duration.value = v.duration; applySpeed(v);
-      // start paused — user controls playback
-      v.pause(); playing.value = false;
+      lastDur.value = v.duration; applySpeed(v);
+      lastEnded.value = false;
+      v.pause(); playing.value = false; stopRaf();
+      masterTime = 0; currentTime.value = 0;
+      ro?.observe(v);
     }
     function onRefLoaded() {
       const rv = refVideo.value; if (!rv) return;
+      refNatDur.value = rv.duration;
       applySpeed(rv);
       rv.currentTime = trimStart.value;
       rv.pause();
+      refEnded.value = false;
+      ro?.observe(rv);
     }
     function onLastTime() {
-      const v = lastVideo.value; if (!v) return;
-      currentTime.value = v.currentTime;
-      // loop last
-      if (v.currentTime >= v.duration - 0.05) {
-        v.currentTime = 0;
-        if (playing.value) v.play();
-      }
-      syncRef();
+      // no-op: timing is now driven by RAF master clock
     }
-    // ref has no independent timeupdate logic — it's driven by last via syncRef
+    function onRefTime() {
+      // no-op
+    }
 
     function fmtTime(t) {
       if (!t) return "0:00";
       return `${Math.floor(t / 60)}:${Math.floor(t % 60).toString().padStart(2, "0")}`;
     }
+    function fmt2(v) { return (Math.round((v || 0) * 100) / 100).toFixed(2); }
 
     function onScrubStart(e) {
       scrubTo(e);
@@ -329,9 +491,7 @@ createApp({
     function scrubTo(e) {
       const rect = e.currentTarget.getBoundingClientRect();
       const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * duration.value;
-      if (lastVideo.value) lastVideo.value.currentTime = t;
-      currentTime.value = t;
-      syncRef();
+      applyMasterTime(t);
     }
 
     // sidebar resize
@@ -366,11 +526,8 @@ createApp({
     }
 
     function seek(delta) {
-      const v = lastVideo.value; if (!v) return;
-      const t = Math.max(0, Math.min(v.duration, v.currentTime + delta));
-      v.currentTime = t;
-      currentTime.value = t;
-      syncRef();
+      const t = Math.max(0, Math.min(duration.value, masterTime + delta));
+      applyMasterTime(t);
     }
 
     function onKeyDown(e) {
@@ -380,16 +537,22 @@ createApp({
       if (e.code === "ArrowRight") { e.preventDefault(); seek(seekStep.value); }
     }
 
-    onMounted(() => { fetchPairs(); connectSSE(); window.addEventListener("keydown", onKeyDown); });
-    onUnmounted(() => { es?.close(); window.removeEventListener("keydown", onKeyDown); });
+    let ro = null;
+    onMounted(() => {
+      fetchPairs(); connectSSE(); window.addEventListener("keydown", onKeyDown);
+      ro = new ResizeObserver(updateEndedStyles);
+    });
+    onUnmounted(() => { es?.close(); window.removeEventListener("keydown", onKeyDown); stopRaf(); ro?.disconnect(); });
 
     return {
       pairs, selected, trimStart, trimDur, speeds, speed, setSpeed, seekStep,
+      FPS, tcSec, tcFr, tcToSec, setTrimStart, setTrimDur,
       mode, setMode, sidebarOpen, sidebarWidth, resizing, onResizerDown,
       lastSrc, refSrc, refKey, lastVideo, refVideo,
       playing, currentTime, duration, progressPct,
-      togglePlay, onLastLoaded, onRefLoaded, onLastTime,
-      fmtTime, onScrubStart,
+      lastEnded, refEnded, lastEndedStyle, refEndedStyle,
+      togglePlay, onLastLoaded, onRefLoaded, onLastTime, onRefTime,
+      fmtTime, fmt2, onScrubStart,
     };
   }
 }).mount("#app");

@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ui",
+      "dependsOn": ["ui:server", "ui:browser"],
+      "dependsOrder": "sequence",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "ui:server",
+      "type": "shell",
+      "command": "kill $(lsof -ti:3131) 2>/dev/null || true; sleep 0.3; node src/web-ui/server.js",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Web UI",
+          "endsPattern": "Web UI"
+        }
+      }
+    },
+    {
+      "label": "ui:browser",
+      "type": "shell",
+      "command": "sleep 1",
+      "problemMatcher": []
+    }
+  ]
+}

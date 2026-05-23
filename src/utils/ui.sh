@@ -14,9 +14,6 @@ SERVER_PID=$!
 
 sleep 0.8
 
-# Open in VSCode simple browser
-code --open-url "http://localhost:$PORT"
-
 echo "UI running at http://localhost:$PORT (pid $SERVER_PID)"
 
 # Keep alive
