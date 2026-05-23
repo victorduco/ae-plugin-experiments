@@ -1,0 +1,7 @@
+# output — ignore all videos except test files
+output/*.mp4
+output/*.mov
+output/*.aep
+output/*.aep Logs
+!output/test_file_last.mp4
+!output/test_file_ref.mp4

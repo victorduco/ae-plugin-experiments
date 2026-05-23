@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "scripts": {
     "render": "src/utils/runner.sh",
-    "ui": "node src/web-ui/server.js"
+    "ui": "src/utils/ui.sh"
   }
 }
