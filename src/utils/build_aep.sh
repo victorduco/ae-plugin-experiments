@@ -97,10 +97,6 @@ if [[ "$BUILD_RESULT" != OK* ]]; then
 fi
 echo "    OK: $OUTPUT_AEP"
 
-# Remove .ffx presets — no longer needed after AEP is built
-JSX_BASE="${GENERATED_JSX%.jsx}"
-find "$(dirname "$GENERATED_JSX")" -maxdepth 1 -name "$(basename "$JSX_BASE")_*.ffx" -delete 2>/dev/null || true
-
 # ── Step 3: Render ────────────────────────────────────────────────────────────
 if [ -n "$COMP_OVERRIDE" ]; then
     COMP_NAME="$COMP_OVERRIDE"

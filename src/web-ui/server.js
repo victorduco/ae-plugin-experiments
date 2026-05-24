@@ -54,6 +54,35 @@ function getVideoPairs() {
   return pairs.sort();
 }
 
+function parseRangeHeader(rangeHeader, fileSize) {
+  if (!rangeHeader || !rangeHeader.startsWith("bytes=") || fileSize <= 0) return null;
+  const spec = rangeHeader.slice("bytes=".length).split(",")[0]?.trim();
+  if (!spec) return null;
+
+  const [rawStart, rawEnd] = spec.split("-");
+  if (rawStart === undefined || rawEnd === undefined) return null;
+
+  let start;
+  let end;
+
+  if (rawStart === "") {
+    const suffixLength = Number.parseInt(rawEnd, 10);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return null;
+    start = Math.max(0, fileSize - suffixLength);
+    end = fileSize - 1;
+  } else {
+    start = Number.parseInt(rawStart, 10);
+    end = rawEnd ? Number.parseInt(rawEnd, 10) : fileSize - 1;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  }
+
+  if (start < 0 || start >= fileSize) return null;
+  end = Math.min(end, fileSize - 1);
+  if (end < start) return null;
+
+  return { start, end };
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
@@ -215,9 +244,16 @@ const server = http.createServer((req, res) => {
     const ext = path.extname(file);
     const range = req.headers.range;
     if (range) {
-      const [startStr, endStr] = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(startStr, 10);
-      const end = endStr ? parseInt(endStr, 10) : stat.size - 1;
+      const parsedRange = parseRangeHeader(range, stat.size);
+      if (!parsedRange) {
+        res.writeHead(416, {
+          "Content-Range": `bytes */${stat.size}`,
+          "Accept-Ranges": "bytes",
+        });
+        res.end();
+        return;
+      }
+      const { start, end } = parsedRange;
       res.writeHead(206, {
         "Content-Range": `bytes ${start}-${end}/${stat.size}`,
         "Accept-Ranges": "bytes",

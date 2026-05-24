@@ -93,10 +93,6 @@ fi
 if [ -f "$OUTPUT_JSX" ]; then
     echo "Generated: $OUTPUT_JSX"
 
-    # Remove .ffx presets — they were only needed during generation
-    JSX_BASE="${OUTPUT_JSX%.jsx}"
-    find "$(dirname "$OUTPUT_JSX")" -maxdepth 1 -name "$(basename "$JSX_BASE")_*.ffx" -delete 2>/dev/null || true
-
     SUMMARY=$(grep -A 200 "EFFECTS EXTRACTION ISSUES" "$OUTPUT_JSX" 2>/dev/null | head -50 || true)
     if [ -n "$SUMMARY" ]; then
         echo ""
