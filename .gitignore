@@ -3,5 +3,8 @@ output/*
 !output/test_file_last.mp4
 !output/test_file_ref.mp4
 
+# logs
+logs/
+
 # generated JSX from AEP exporter
 src/scripts/*_generated.jsx

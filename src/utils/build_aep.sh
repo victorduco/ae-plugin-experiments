@@ -19,8 +19,10 @@ source "$ROOT_DIR/src/utils/ae_control.sh"
 
 BASE_NAME="$(basename "${AEP_ABS%.aep}")"
 OUTPUT_DIR="$ROOT_DIR/output"
+AEP_DIR="$OUTPUT_DIR/aep"
+LOGS_DIR="$ROOT_DIR/logs"
 GENERATED_JSX="$ROOT_DIR/src/scripts/${BASE_NAME}_generated.jsx"
-OUTPUT_AEP="$OUTPUT_DIR/${BASE_NAME}.aep"
+OUTPUT_AEP="$AEP_DIR/${BASE_NAME}.aep"
 OUTPUT_MOV="$OUTPUT_DIR/${BASE_NAME}.mov"
 OUTPUT_LAST="$OUTPUT_DIR/${BASE_NAME}_last.mp4"
 
@@ -32,7 +34,7 @@ if [ ! -f "$AERENDER" ]; then
     echo "ERROR: aerender not found"; exit 1
 fi
 
-mkdir -p "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR" "$AEP_DIR" "$LOGS_DIR"
 
 # ── Step 1: AEP → JSX ────────────────────────────────────────────────────────
 echo ""

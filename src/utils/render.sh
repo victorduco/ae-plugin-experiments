@@ -33,16 +33,18 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT_DIR/src/utils/ae_control.sh"
 JSX_FILE="$ROOT_DIR/src/scripts/${SCRIPT_NAME}.jsx"
 OUTPUT_DIR="$ROOT_DIR/output"
+AEP_DIR="$OUTPUT_DIR/aep"
+LOGS_DIR="$ROOT_DIR/logs"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-PROJECT_FILE="$OUTPUT_DIR/${SCRIPT_NAME}.aep"
+PROJECT_FILE="$AEP_DIR/${SCRIPT_NAME}.aep"
 OUTPUT_MOV="$OUTPUT_DIR/${SCRIPT_NAME}.mov"
 OUTPUT_MP4="$OUTPUT_DIR/${SCRIPT_NAME}.mp4"
-OUTPUT_LOG="$OUTPUT_DIR/${SCRIPT_NAME}.log"
+OUTPUT_LOG="$LOGS_DIR/${SCRIPT_NAME}.log"
 OUTPUT_LAST="$OUTPUT_DIR/${SCRIPT_NAME}_last.mp4"
 OUTPUT_REF="$OUTPUT_DIR/${SCRIPT_NAME}_ref.mp4"
-BACKUP_PROJECT_FILE="$OUTPUT_DIR/${SCRIPT_NAME}_${TIMESTAMP}.aep"
+BACKUP_PROJECT_FILE="$AEP_DIR/${SCRIPT_NAME}_${TIMESTAMP}.aep"
 BACKUP_OUTPUT_MP4="$OUTPUT_DIR/${SCRIPT_NAME}_${TIMESTAMP}.mp4"
-BACKUP_OUTPUT_LOG="$OUTPUT_DIR/${SCRIPT_NAME}_${TIMESTAMP}.log"
+BACKUP_OUTPUT_LOG="$LOGS_DIR/${SCRIPT_NAME}_${TIMESTAMP}.log"
 
 AERENDER="/Applications/Adobe After Effects 2026/aerender"
 if [ ! -f "$AERENDER" ]; then
@@ -56,19 +58,23 @@ if [ ! -f "$JSX_FILE" ]; then
     echo "ERROR: Script not found: $JSX_FILE"; exit 1
 fi
 
-mkdir -p "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR" "$AEP_DIR" "$LOGS_DIR"
 rm -f "$OUTPUT_MOV"
 
 cleanup_script_outputs() {
     find "$OUTPUT_DIR" -maxdepth 1 -type f \( \
         -name "${SCRIPT_NAME}_*.mp4" -o \
-        -name "${SCRIPT_NAME}_*.mov" -o \
-        -name "${SCRIPT_NAME}_*.aep" -o \
-        -name "${SCRIPT_NAME}_*.log" \
+        -name "${SCRIPT_NAME}_*.mov" \
     \) \
     ! -name "${SCRIPT_NAME}_last.mp4" \
     ! -name "${SCRIPT_NAME}_ref.mp4" \
     -delete
+    find "$AEP_DIR" -maxdepth 1 -type f \
+        -name "${SCRIPT_NAME}_*.aep" \
+        -delete
+    find "$LOGS_DIR" -maxdepth 1 -type f \
+        -name "${SCRIPT_NAME}_*.log" \
+        -delete
 }
 
 : > "$OUTPUT_LOG"
