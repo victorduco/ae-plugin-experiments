@@ -11,39 +11,50 @@ AE animation experiments — write ExtendScript → render MP4. Also supports ro
 
 | Command | Does |
 |---|---|
-| `npm run render <name>` | JSX → AEP → MP4 (hand-written scripts) |
-| `npm run parse_aep -- <file.aep>` | AEP → JSX (export existing project) |
-| `npm run build_aep -- <file.aep>` | AEP → JSX → AEP → MP4 (full roundtrip) |
+| `npm run jsx_to_aep <name>` | JSX → AEP (build AE project from script) |
+| `npm run aep_to_mp4 <name>` | AEP → MP4 (render with aerender + ffmpeg) |
+| `npm run aep_to_jsx -- <file.aep>` | AEP → JSX (export existing project to script) |
 | `npm run ui` | Start web UI at localhost:3131 |
 
 ## Two Workflows
 
 **Write a new animation:**
 ```
-src/scripts/<name>.jsx  →  npm run render <name>  →  output/<name>_last.mp4
+src/scripts/<name>.jsx
+  → npm run jsx_to_aep <name>   → output/aep/<name>.aep
+  → npm run aep_to_mp4 <name>   → output/<name>_last.mp4
 ```
-Script name = comp name inside the JSX. See [[ae-scripting]].
+See [[ae-scripting]].
 
 **Roundtrip an existing AEP:**
 ```
-src/scripts/aep/<file>.aep  →  npm run build_aep  →  output/<file>_last.mp4
+src/scripts/aep/<file>.aep
+  → npm run aep_to_jsx -- src/scripts/aep/<file>.aep
+  → output/jsx/<file>_generated.jsx
+  → npm run jsx_to_aep <file>_generated
+  → npm run aep_to_mp4 <file>_generated
+  → output/<file>_generated_last.mp4
 ```
-Generated JSX lands in `src/scripts/<file>_generated.jsx`. See [[ae-aep-parser]].
+See [[ae-aep-parser]].
 
 ## File Layout
 
 ```
 src/
-  scripts/          ← hand-written .jsx animations + generated JSX (gitignored)
+  scripts/          ← hand-written .jsx animations
   scripts/aep/      ← source .aep files for roundtrip
-  aep_exporter/     ← modular AEP→JSX exporter (parse_aep / build_aep)
+  aep_exporter/     ← modular AEP→JSX exporter
+    aep_to_jsx.sh   ← npm run aep_to_jsx
   utils/
-    render.sh       ← npm run render
-    build_aep.sh    ← npm run build_aep
+    jsx_to_aep.sh   ← npm run jsx_to_aep
+    aep_to_mp4.sh   ← npm run aep_to_mp4
     ae_control.sh   ← shared: ae_close_without_saving()
-    render-open.sh  ← render an already-built .aep (no JSX step)
     ui.sh           ← npm run ui
-output/             ← .aep, _last.mp4, _ref.mp4 (all gitignored)
+output/
+  aep/              ← built .aep files
+  jsx/              ← generated .jsx + .ffx files
+  <name>_last.mp4   ← latest render
+  <name>_ref.mp4    ← reference for comparison
 ```
 
 ## Skills

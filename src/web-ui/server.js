@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 const OUTPUT_DIR = path.resolve(__dirname, "../../output");
-const RENDER_OPEN_SH = path.resolve(__dirname, "../utils/render-open.sh");
+const AEP_TO_MP4_SH = path.resolve(__dirname, "../utils/aep_to_mp4.sh");
 const PORT = 3131;
 
 const renderJobs = new Map(); // outputName → { status, log }
@@ -209,7 +209,7 @@ const server = http.createServer((req, res) => {
       renderJobs.set(safeName, { status: "running", log: "" });
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
       res.end(JSON.stringify({ ok: true, outputName: safeName }));
-      const child = spawn(RENDER_OPEN_SH, [aepPath, compName, safeName], { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(AEP_TO_MP4_SH, [aepPath, "--comp", compName], { stdio: ["ignore", "pipe", "pipe"] });
       const appendLog = d => { renderJobs.get(safeName).log += d.toString(); };
       child.stdout.on("data", appendLog);
       child.stderr.on("data", appendLog);

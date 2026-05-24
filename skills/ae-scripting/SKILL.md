@@ -119,7 +119,7 @@ Web UI features:
 
 To render and then view:
 ```bash
-npm run render android_show_1
+npm run jsx_to_aep android_show_1 && npm run aep_to_mp4 android_show_1
 # then check the browser — UI auto-refreshes
 ```
 

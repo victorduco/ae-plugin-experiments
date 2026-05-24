@@ -1,8 +1,8 @@
 #!/bin/bash
-# parse_aep.sh — build the bundle and run it against an AEP file.
-# Usage: parse_aep.sh <path/to/file.aep> [output.jsx]
+# aep_to_jsx.sh — AEP → JSX
+# Usage: aep_to_jsx.sh <path/to/file.aep> [output.jsx]
 #
-# Output defaults to src/scripts/<basename>_generated.jsx (relative to repo root).
+# Output defaults to output/jsx/<basename>_generated.jsx
 # Pass a second argument to override the output path.
 
 set -euo pipefail

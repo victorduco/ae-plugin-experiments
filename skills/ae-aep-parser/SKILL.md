@@ -1,6 +1,6 @@
 ---
 name: ae-aep-parser
-description: Parsing an existing .aep file into a reproducible JSX script, or running the full AEP → JSX → AEP → MP4 roundtrip. Use when working with the aep_exporter, fixing parser bugs, or running parse_aep / build_aep commands.
+description: Export AEP to JSX (aep_to_jsx). Use when parsing an existing .aep file into a reproducible JSX script, working with the aep_exporter, or fixing parser bugs. Command: npm run aep_to_jsx -- <file.aep>
 ---
 
 # AEP Parser Skill
@@ -9,25 +9,27 @@ description: Parsing an existing .aep file into a reproducible JSX script, or ru
 
 ```bash
 # AEP → JSX only
-npm run parse_aep -- src/scripts/aep/file.aep
+npm run aep_to_jsx -- src/scripts/aep/file.aep
 
-# AEP → JSX → build AEP → render MP4
-npm run build_aep -- src/scripts/aep/file.aep
+# Full roundtrip: AEP → JSX → AEP → MP4
+npm run aep_to_jsx -- src/scripts/aep/file.aep
+npm run jsx_to_aep <name>_generated
+npm run aep_to_mp4 <name>_generated
 ```
 
-Output JSX lands in `src/scripts/<name>_generated.jsx` (gitignored).
+Output JSX lands in `output/jsx/<name>_generated.jsx`.
 
 ## How It Works
 
 ```
 src/scripts/aep/file.aep
-        ↓  parse_aep.sh
+        ↓  aep_to_jsx.sh
         ↓  opens AEP in AE, runs aep_exporter_bundle.jsx
-src/scripts/file_generated.jsx
-        ↓  build_aep.sh (step 2)
+output/jsx/file_generated.jsx
+        ↓  jsx_to_aep.sh
         ↓  evalFile in AE, saves project
-output/file.aep
-        ↓  aerender + ffmpeg
+output/aep/file.aep
+        ↓  aep_to_mp4.sh (aerender + ffmpeg)
 output/file_last.mp4
 ```
 
@@ -38,7 +40,7 @@ output/file_last.mp4
 | File | Responsibility |
 |---|---|
 | `build.sh` | concatenates modules → `dist/aep_exporter_bundle.jsx` |
-| `parse_aep.sh` | builds bundle, opens AEP in AE, evals bundle, force-quits AE |
+| `aep_to_jsx.sh` | builds bundle, opens AEP in AE, evals bundle, force-quits AE |
 | `main.jsx` | entry point IIFE; output path override via `_exporterOutputPath` |
 | `modules/core.jsx` | output helpers (`w`, `q`, `fmtVal`), topo sort |
 | `modules/footage.jsx` | footage import emission |
@@ -79,8 +81,8 @@ Named property access (`property("ADBE Vector Filter - Repeater")`) always retur
 
 2. Compare dump vs generated JSX — check values match.
 
-3. Edit the relevant module in `src/aep_exporter/modules/`, re-run `npm run parse_aep`.
+3. Edit the relevant module in `src/aep_exporter/modules/`, re-run `npm run aep_to_jsx`.
 
 ## Effects with CUSTOM_VALUE
 
-Some effect properties are opaque binary blobs inaccessible via scripting. The exporter saves `.ffx` preset files next to the output JSX and emits `addProperty(new File("...ffx"))` in the generated JSX instead of trying to set individual values.
+Some effect properties are opaque binary blobs inaccessible via scripting. The exporter saves `.ffx` preset files next to the output JSX and emits `applyPreset(new File("...ffx"))` in the generated JSX instead of trying to set individual values. These `.ffx` files must be present when running `jsx_to_aep`.
