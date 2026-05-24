@@ -6,5 +6,5 @@ output/*
 # logs
 logs/
 
-# generated JSX from AEP exporter
+# generated JSX from AEP exporter (now in output/jsx/)
 src/scripts/*_generated.jsx

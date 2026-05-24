@@ -673,12 +673,13 @@
 <script>
 const { createApp, ref, reactive, computed, watch, onMounted, onUnmounted } = Vue;
 const FPS = 60;
-const ALIGN_FILTERS = {
-  normal: "none",
-  invert: "invert(1)",
-  mono: "grayscale(1) contrast(1.08)",
-  cool: "grayscale(1) sepia(1) saturate(4) hue-rotate(165deg) brightness(1.05)",
-  warm: "sepia(1) saturate(4.6) hue-rotate(-18deg) brightness(1.05)",
+const ALIGN_EFFECTS = {
+  normal: { filter: "none", blendMode: "normal" },
+  screen: { filter: "none", blendMode: "screen" },
+  invert: { filter: "invert(1)", blendMode: "normal" },
+  mono: { filter: "grayscale(1) contrast(1.08)", blendMode: "normal" },
+  cool: { filter: "grayscale(1) sepia(1) saturate(4) hue-rotate(165deg) brightness(1.05)", blendMode: "normal" },
+  warm: { filter: "sepia(1) saturate(4.6) hue-rotate(-18deg) brightness(1.05)", blendMode: "normal" },
 };
 
 const LS = {
@@ -754,6 +755,7 @@ createApp({
     ];
     const alignFilterOptions = [
       { id: "normal", label: "normal" },
+      { id: "screen", label: "screen" },
       { id: "invert", label: "invert" },
       { id: "mono", label: "mono" },
       { id: "cool", label: "cool" },
@@ -1182,7 +1184,7 @@ createApp({
       alignOpacity[target] = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
     }
     function setAlignFilter(target, value) {
-      if (!(target in alignFilter) || !(value in ALIGN_FILTERS)) return;
+      if (!(target in alignFilter) || !(value in ALIGN_EFFECTS)) return;
       alignFilter[target] = value;
     }
     function resetAlignOffsets() {
@@ -1194,11 +1196,13 @@ createApp({
     function alignLayerStyle(target) {
       const offset = alignOffsets[target];
       const isTop = alignTopLayer.value === target;
+      const effect = ALIGN_EFFECTS[alignFilter[target]] || ALIGN_EFFECTS.normal;
       return {
         transform: `translate(${offset.x}px, ${offset.y}px)`,
         zIndex: isTop ? 2 : 1,
         opacity: alignOpacity[target] / 100,
-        filter: ALIGN_FILTERS[alignFilter[target]] || "none",
+        filter: effect.filter,
+        mixBlendMode: effect.blendMode,
       };
     }
     function onAlignPointerMove(e) {

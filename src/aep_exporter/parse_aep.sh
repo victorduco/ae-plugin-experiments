@@ -23,7 +23,8 @@ BASE_NAME="$(basename "${AEP_ABS%.aep}")"
 if [ -n "${2:-}" ]; then
     OUTPUT_JSX="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
 else
-    OUTPUT_JSX="$ROOT_DIR/src/scripts/${BASE_NAME}_generated.jsx"
+    mkdir -p "$ROOT_DIR/output/jsx"
+    OUTPUT_JSX="$ROOT_DIR/output/jsx/${BASE_NAME}_generated.jsx"
 fi
 
 # Build the bundle first (fast, idempotent)
@@ -91,6 +92,10 @@ fi
 
 if [ -f "$OUTPUT_JSX" ]; then
     echo "Generated: $OUTPUT_JSX"
+
+    # Remove .ffx presets — they were only needed during generation
+    JSX_BASE="${OUTPUT_JSX%.jsx}"
+    find "$(dirname "$OUTPUT_JSX")" -maxdepth 1 -name "$(basename "$JSX_BASE")_*.ffx" -delete 2>/dev/null || true
 
     SUMMARY=$(grep -A 200 "EFFECTS EXTRACTION ISSUES" "$OUTPUT_JSX" 2>/dev/null | head -50 || true)
     if [ -n "$SUMMARY" ]; then

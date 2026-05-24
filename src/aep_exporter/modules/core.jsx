@@ -49,6 +49,10 @@ var compVars = {};
 // ─── deferred track matte pairs ──────────────────────────────────────────────
 var mattePairs = [];
 
+// ─── deferred parent links ───────────────────────────────────────────────────
+// Each entry: { ref, parentIndex, compRef }
+var parentLinks = [];
+
 // ─── effects extraction log ──────────────────────────────────────────────────
 // Each entry: {compName, layerName, effectName, effectMN, failedProps[], note}
 var effectsLog = [];

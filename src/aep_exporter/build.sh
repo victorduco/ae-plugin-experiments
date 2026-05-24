@@ -21,6 +21,7 @@ MODULES=(
     "$EXPORTER_DIR/modules/shapes.jsx"
     "$EXPORTER_DIR/modules/transform.jsx"
     "$EXPORTER_DIR/modules/effects.jsx"
+    "$EXPORTER_DIR/modules/masks.jsx"
     "$EXPORTER_DIR/modules/layers.jsx"
     "$EXPORTER_DIR/modules/comps.jsx"
     "$EXPORTER_DIR/main.jsx"

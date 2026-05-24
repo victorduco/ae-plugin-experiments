@@ -77,7 +77,8 @@ function emitComp(comp, indent) {
     }
 
     // Emit layers in REVERSE order so final stack order is correct
-    mattePairs = [];
+    mattePairs  = [];
+    parentLinks = [];
 
     for (var li = comp.numLayers; li >= 1; li--) {
         try {
@@ -88,6 +89,12 @@ function emitComp(comp, indent) {
     // Apply track mattes after all layers exist
     for (var m = 0; m < mattePairs.length; m++) {
         w(indent + mattePairs[m].ref + '.trackMatteType = ' + mattePairs[m].type + ';');
+    }
+
+    // Apply parent links after all layers exist
+    for (var p = 0; p < parentLinks.length; p++) {
+        var pl = parentLinks[p];
+        w(indent + pl.ref + '.parent = ' + pl.compRef + '.layer(' + pl.parentIndex + ');');
     }
 
     w('');

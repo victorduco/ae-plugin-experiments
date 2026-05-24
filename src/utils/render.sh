@@ -32,6 +32,9 @@ fi
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT_DIR/src/utils/ae_control.sh"
 JSX_FILE="$ROOT_DIR/src/scripts/${SCRIPT_NAME}.jsx"
+if [ ! -f "$JSX_FILE" ]; then
+    JSX_FILE="$ROOT_DIR/output/jsx/${SCRIPT_NAME}.jsx"
+fi
 OUTPUT_DIR="$ROOT_DIR/output"
 AEP_DIR="$OUTPUT_DIR/aep"
 LOGS_DIR="$ROOT_DIR/logs"

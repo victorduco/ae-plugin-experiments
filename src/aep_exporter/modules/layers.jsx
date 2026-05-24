@@ -199,8 +199,64 @@ function emitLayer(layer, compRef, indent) {
         w(indent + lname + '.blendingMode = ' + bm + ';');
     }
 
+    // collapseTransformation — only settable on comp/vector layers, guard with canSetCollapseTransformation
+    try {
+        if (layer.collapseTransformation && layer.canSetCollapseTransformation) {
+            w(indent + lname + '.collapseTransformation = true;');
+        }
+    } catch(e) {}
+
+    // adjustmentLayer / guideLayer
+    try { if (layer.adjustmentLayer) w(indent + lname + '.adjustmentLayer = true;'); } catch(e) {}
+    try { if (layer.guideLayer)      w(indent + lname + '.guideLayer = true;');      } catch(e) {}
+
+    // shy / solo
+    try { if (layer.shy)  w(indent + lname + '.shy = true;');  } catch(e) {}
+    try { if (layer.solo) w(indent + lname + '.solo = true;'); } catch(e) {}
+
+    // label (0 = None is default, skip)
+    try { if (layer.label !== 0) w(indent + lname + '.label = ' + layer.label + ';'); } catch(e) {}
+
+    // quality (4614 = BEST is default, skip)
+    try {
+        if (layer.quality === LayerQuality.DRAFT) {
+            w(indent + lname + '.quality = LayerQuality.DRAFT;');
+        } else if (layer.quality === LayerQuality.WIREFRAME) {
+            w(indent + lname + '.quality = LayerQuality.WIREFRAME;');
+        }
+    } catch(e) {}
+
+    // frameBlendingType (FRAME_MIX = default off, skip FrameBlendingType.NO_FRAME_BLEND)
+    try {
+        if (layer.frameBlendingType === FrameBlendingType.FRAME_MIX) {
+            w(indent + lname + '.frameBlendingType = FrameBlendingType.FRAME_MIX;');
+        } else if (layer.frameBlendingType === FrameBlendingType.PIXEL_MOTION) {
+            w(indent + lname + '.frameBlendingType = FrameBlendingType.PIXEL_MOTION;');
+        }
+    } catch(e) {}
+
+    // audioEnabled (only emit if explicitly off — default is on)
+    try { if (!layer.audioEnabled) w(indent + lname + '.audioEnabled = false;'); } catch(e) {}
+
+    // timeRemapEnabled + keyframes
+    try {
+        if (layer.timeRemapEnabled) {
+            w(indent + lname + '.timeRemapEnabled = true;');
+            var trProp = layer.property("ADBE Time Remapping");
+            if (trProp && trProp.numKeys > 0) {
+                for (var k = 1; k <= trProp.numKeys; k++) {
+                    w(indent + lname + '.property("ADBE Time Remapping").setValueAtTime(' +
+                        fmtVal(trProp.keyTime(k)) + ', ' + fmtVal(trProp.keyValue(k)) + ');');
+                }
+            }
+        }
+    } catch(e) {}
+
     // Transform (3D-aware via emitTransform)
     emitTransform(layer, lname, indent);
+
+    // Masks
+    emitMasks(layer, lname, indent);
 
     // Effects
     emitEffects(layer, lname, indent);
@@ -221,6 +277,13 @@ function emitLayer(layer, compRef, indent) {
     if (tmt) {
         mattePairs.push({ ref: lname, type: tmt, index: layer.index });
     }
+
+    // Parent link — deferred until all layers are added (see comps.jsx)
+    try {
+        if (layer.parent) {
+            parentLinks.push({ ref: lname, parentIndex: layer.parent.index, compRef: compRef });
+        }
+    } catch(e) {}
 
     return lname;
 }
