@@ -32,6 +32,11 @@ fs.watch(OUTPUT_DIR, { persistent: true }, (_eventType, filename) => {
   }
 });
 
+// Watch index.html — send reload event to all clients on change
+fs.watch(path.join(__dirname, "index.html"), () => {
+  for (const res of sseClients) res.write("data: dev-reload\n\n");
+});
+
 function getVideoPairs() {
   const files = fs.existsSync(OUTPUT_DIR) ? fs.readdirSync(OUTPUT_DIR) : [];
   const lasts = new Set();

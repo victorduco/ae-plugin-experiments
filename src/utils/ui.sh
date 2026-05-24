@@ -3,18 +3,13 @@ set -e
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 PORT=3131
+LOG="$ROOT_DIR/output/ui-server.log"
 
-# Kill any existing instance
+mkdir -p "$ROOT_DIR/output"
+
+# Kill anything already on the port
 kill $(lsof -ti:$PORT) 2>/dev/null || true
 sleep 0.3
 
-# Start server in background
-node "$ROOT_DIR/src/web-ui/server.js" &
-SERVER_PID=$!
-
-sleep 0.8
-
-echo "UI running at http://localhost:$PORT (pid $SERVER_PID)"
-
-# Keep alive
-wait $SERVER_PID
+echo "Web UI → http://localhost:$PORT"
+exec node "$ROOT_DIR/src/web-ui/server.js"
