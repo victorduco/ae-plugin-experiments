@@ -123,7 +123,7 @@ function emitShapeContents(contents, contentsRef, indent) {
             } catch(e) {}
 
         } else if (SHAPE_ITEM_PROPS[mn]) {
-            var itemRef    = contentsRef + '.property(' + q(mn) + ')';
+            var itemRef    = contentsRef + '.property(' + (i + 1) + ')';
             var propsToSet = SHAPE_ITEM_PROPS[mn];
             for (var p = 0; p < propsToSet.length; p++) {
                 try {

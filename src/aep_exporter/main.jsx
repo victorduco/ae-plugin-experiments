@@ -8,13 +8,8 @@
 
 (function () {
 
-    app.beginSuppressDialogs();
-
     var proj = app.project;
-    if (!proj) {
-        app.endSuppressDialogs(false);
-        throw new Error("No project is open in After Effects.");
-    }
+    if (!proj) throw new Error("No project is open in After Effects.");
 
     // ── Collect all compositions ──────────────────────────────────────────────
 
@@ -23,11 +18,7 @@
         var item = proj.item(i);
         if (item instanceof CompItem) allComps.push(item);
     }
-
-    if (allComps.length === 0) {
-        app.endSuppressDialogs(false);
-        throw new Error("No compositions found in the project.");
-    }
+    if (allComps.length === 0) throw new Error("No compositions found in the project.");
 
     // ── Topological sort (sub-comps before parents) ──────────────────────────
 
@@ -36,6 +27,42 @@
     // ── Pre-scan footage ──────────────────────────────────────────────────────
 
     gatherFootage(sorted);
+
+    // ── Determine output path ─────────────────────────────────────────────────
+
+    var outPath = "";
+    var projFile = proj.file;
+    if (projFile) {
+        outPath = projFile.fsName.replace(/\.aep$/i, '_generated.jsx');
+    } else {
+        outPath = "/tmp/ae_generated.jsx";
+    }
+
+    // Tell effects module where to save .ffx presets (same dir, same base name)
+    _effOutputBasePath = outPath.replace(/\.jsx$/, '');
+
+    // ── Pre-pass: save .ffx presets for layers with CUSTOM_VALUE effects ──────
+    // Must run BEFORE beginSuppressDialogs — savePreset() is blocked by dialog suppression.
+    for (var c = 0; c < sorted.length; c++) {
+        var comp = sorted[c];
+        for (var li = 1; li <= comp.numLayers; li++) {
+            try {
+                var layer = comp.layer(li);
+                var eff;
+                try { eff = layer.property("Effects"); } catch(e) { continue; }
+                if (!eff || eff.numProperties === 0) continue;
+                var hasCustom = false;
+                for (var ei = 1; ei <= eff.numProperties; ei++) {
+                    try { if (effHasCustomValue(eff.property(ei))) { hasCustom = true; break; } } catch(e) {}
+                }
+                if (hasCustom) {
+                    saveLayerEffectsPreset(layer, layer.name || ("layer_" + li));
+                }
+            } catch(e) {}
+        }
+    }
+
+    app.beginSuppressDialogs();
 
     // ── Build output JSX ──────────────────────────────────────────────────────
 
@@ -62,21 +89,12 @@
 
     var result = lines.join(NL);
 
-    var outPath = "";
-    var projFile = proj.file;
-    if (projFile) {
-        outPath = projFile.fsName.replace(/\.aep$/i, '_generated.jsx');
-    } else {
-        // Fallback: use a temp path
-        outPath = "/tmp/ae_generated.jsx";
-    }
-
     var outFile = new File(outPath);
     outFile.open("w");
     outFile.write(result);
     outFile.close();
 
-    app.endSuppressDialogs(false);
+    try { app.endSuppressDialogs(false); } catch(e) {}
 
     return outFile.fsName;
 
