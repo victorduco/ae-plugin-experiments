@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-# Usage: runner.sh <script_name> [--backup]
-# Example: runner.sh redcircle --backup
+# Usage: render.sh <script_name> [--backup]
+# Example: render.sh redcircle --backup
 
 SCRIPT_NAME=""
 BACKUP=0
@@ -16,7 +16,7 @@ for arg in "$@"; do
                 SCRIPT_NAME="$arg"
             else
                 echo "ERROR: Unknown argument: $arg"
-                echo "Usage: runner.sh <script_name> [--backup]"
+                echo "Usage: render.sh <script_name> [--backup]"
                 exit 1
             fi
             ;;
@@ -24,8 +24,8 @@ for arg in "$@"; do
 done
 
 if [ -z "$SCRIPT_NAME" ]; then
-    echo "Usage: runner.sh <script_name> [--backup]"
-    echo "Example: runner.sh redcircle --backup"
+    echo "Usage: render.sh <script_name> [--backup]"
+    echo "Example: render.sh redcircle --backup"
     exit 1
 fi
 

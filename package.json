@@ -2,7 +2,9 @@
   "name": "ae-plugin-experiments",
   "version": "1.0.0",
   "scripts": {
-    "render": "src/utils/runner.sh",
-    "ui": "src/utils/ui.sh"
+    "render": "src/utils/render.sh",
+    "ui": "src/utils/ui.sh",
+    "parse_aep": "src/aep_exporter/parse_aep.sh",
+    "build_aep": "src/utils/build_aep.sh"
   }
 }

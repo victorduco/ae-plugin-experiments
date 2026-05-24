@@ -1,9 +1,9 @@
 #!/bin/bash
-# run_exporter.sh — build the bundle and run it against an AEP file.
-# Usage: run_exporter.sh <path/to/file.aep>
+# parse_aep.sh — build the bundle and run it against an AEP file.
+# Usage: parse_aep.sh <path/to/file.aep> [output.jsx]
 #
-# Replaces src/utils/run_aep_to_jsx.sh with the new modular exporter.
-# Output: <aep_path_without_ext>_generated.jsx
+# Output defaults to src/scripts/<basename>_generated.jsx (relative to repo root).
+# Pass a second argument to override the output path.
 
 set -euo pipefail
 
@@ -17,6 +17,14 @@ EXPORTER_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$EXPORTER_DIR/../.." && pwd)"
 
 source "$ROOT_DIR/src/utils/ae_control.sh"
+
+BASE_NAME="$(basename "${AEP_ABS%.aep}")"
+
+if [ -n "${2:-}" ]; then
+    OUTPUT_JSX="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
+else
+    OUTPUT_JSX="$ROOT_DIR/src/scripts/${BASE_NAME}_generated.jsx"
+fi
 
 # Build the bundle first (fast, idempotent)
 echo "Building exporter bundle..."
@@ -41,6 +49,7 @@ cat > "$TMP_JSX" <<EOF
         app.beginSuppressDialogs();
         try { app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES); } catch(e2) {}
         app.open(new File("$AEP_ABS"));
+        var _exporterOutputPath = "$OUTPUT_JSX";
         $.evalFile("$BUNDLE");
         errFile.open("w"); errFile.writeln("OK"); errFile.close();
     } catch(e) {
@@ -48,7 +57,7 @@ cat > "$TMP_JSX" <<EOF
         errFile.writeln("ERROR: " + e.toString() + " line:" + e.line);
         errFile.close();
     }
-    app.endSuppressDialogs(false);
+    try { app.endSuppressDialogs(false); } catch(e) {}
 })();
 EOF
 
@@ -80,14 +89,10 @@ if [[ "$RESULT" != OK* ]]; then
     echo "FAILED"; exit 1
 fi
 
-# Report output file
-GENERATED="${AEP_ABS%.aep}_generated.jsx"
-if [ -f "$GENERATED" ]; then
-    echo "Generated: $GENERATED"
-    wc -l "$GENERATED"
+if [ -f "$OUTPUT_JSX" ]; then
+    echo "Generated: $OUTPUT_JSX"
 
-    # Print effects summary if any issues were logged
-    SUMMARY=$(grep -A 200 "EFFECTS EXTRACTION ISSUES" "$GENERATED" 2>/dev/null | head -50 || true)
+    SUMMARY=$(grep -A 200 "EFFECTS EXTRACTION ISSUES" "$OUTPUT_JSX" 2>/dev/null | head -50 || true)
     if [ -n "$SUMMARY" ]; then
         echo ""
         echo "─── Effects summary ──────────────────────────────"

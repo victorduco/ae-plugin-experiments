@@ -98,10 +98,14 @@
   .video-ended-overlay { position: absolute; background: #f00; pointer-events: none; }
 
   /* overlay */
-  .videos-overlay {
+  .videos-overlay,
+  .videos-align {
     flex: 1; position: relative; overflow: hidden; min-height: 0; background: #000;
   }
-  .videos-overlay video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .videos-overlay video,
+  .videos-align video {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+  }
   .videos-overlay video.on-top { opacity: 0.5; }
   .videos-overlay .video-ended-overlay { z-index: 2; }
   .videos-overlay .video-ended-overlay.on-top { opacity: 0.5; }
@@ -159,6 +163,13 @@
     border-radius: 4px; background: rgba(0,0,0,0.5); color: rgba(255,255,255,0.88);
     font-size: 10px; line-height: 1; font-variant-numeric: tabular-nums;
     border: 1px solid rgba(255,255,255,0.12);
+  }
+  .align-layer {
+    position: absolute; inset: 0; z-index: 1; will-change: transform;
+  }
+  .videos-align .video-ended-overlay { z-index: 1; }
+  .align-hit-area {
+    position: absolute; inset: 0; z-index: 3; user-select: none;
   }
 
   /* controls bar */
@@ -241,6 +252,41 @@
     background: #1e1e1e; color: #777; cursor: pointer; transition: all 0.1s;
   }
   .btn-group button.active { background: #2a2a2a; color: #eee; border-color: #555; }
+  .btn-group.compact button { padding: 3px 8px; font-size: 11px; }
+  .align-panel {
+    padding: 10px; border-radius: 8px; background: #131313; border: 1px solid #262626;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .align-panel-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .align-panel-key {
+    font-size: 11px; color: #676767; white-space: nowrap;
+  }
+  .align-video-list {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .align-video-row {
+    display: grid; grid-template-columns: 30px minmax(0, 1fr) 92px;
+    gap: 8px; align-items: center;
+  }
+  .align-video-name {
+    font-size: 11px; color: #bcbcbc; text-transform: lowercase;
+  }
+  .align-opacity {
+    display: flex; align-items: center; gap: 8px; min-width: 0;
+  }
+  .align-opacity input[type="range"] {
+    flex: 1; min-width: 0; accent-color: #6d93ff;
+  }
+  .align-opacity-value {
+    width: 38px; text-align: right; font-size: 11px; color: #7d7d7d;
+    font-variant-numeric: tabular-nums;
+  }
+  .align-filter-select {
+    width: 92px; padding: 4px 8px; font-size: 11px;
+    background: #1d1d1d; color: #ddd; border: 1px solid #333; border-radius: 5px;
+  }
 
   .sep-h { height: 1px; background: #222; }
 
@@ -316,7 +362,7 @@
       </div>
 
       <!-- OVERLAY -->
-      <div v-else class="videos-overlay">
+      <div v-else-if="mode === 'overlay'" class="videos-overlay">
         <video ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
                @loadedmetadata="onLastLoaded" @timeupdate="onLastTime"></video>
         <div v-if="lastEnded" class="video-ended-overlay" :style="lastEndedStyle"></div>
@@ -360,6 +406,23 @@
              :style="{ left: overlayMeasurement.labelLeft + 'px', top: overlayMeasurement.labelTop + 'px' }">
           {{ overlayMeasurement.text }}
         </button>
+      </div>
+
+      <!-- ALIGN -->
+      <div v-else class="videos-align">
+        <div class="align-layer" :style="alignLayerStyle('last')">
+          <video ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
+                 @loadedmetadata="onLastLoaded" @timeupdate="onLastTime"></video>
+          <div v-if="lastEnded" class="video-ended-overlay" :style="lastEndedStyle"></div>
+        </div>
+        <div class="align-layer" :style="alignLayerStyle('ref')">
+          <video ref="refVideo" :key="refKey" :src="refSrc" muted
+                 @loadedmetadata="onRefLoaded" @timeupdate="onRefTime"></video>
+          <div v-if="refEnded" class="video-ended-overlay" :style="refEndedStyle"></div>
+        </div>
+        <div class="align-hit-area"
+             :style="{ cursor: alignDragging ? 'grabbing' : 'grab' }"
+             @pointerdown.prevent="onAlignPointerDown"></div>
       </div>
 
     </template>
@@ -474,12 +537,52 @@
           <div class="btn-group">
             <button :class="{ active: mode === 'split' }"   @click="setMode('split')">split</button>
             <button :class="{ active: mode === 'overlay' }" @click="setMode('overlay')">overlay</button>
+            <button :class="{ active: mode === 'align' }"   @click="setMode('align')">align</button>
           </div>
         </div>
 
-        <div class="sep-h"></div>
+        <template v-if="mode === 'align'">
+          <div class="sep-h"></div>
+          <div class="field">
+            <div class="lbl">align</div>
+            <div class="align-panel">
+              <div class="align-panel-row">
+                <div class="align-panel-key">drag</div>
+                <div class="btn-group compact">
+                  <button :class="{ active: alignTarget === 'last' }" @click="setAlignTarget('last')">last</button>
+                  <button :class="{ active: alignTarget === 'ref' }" @click="setAlignTarget('ref')">ref</button>
+                </div>
+              </div>
+              <div class="align-panel-row">
+                <div class="align-panel-key">top</div>
+                <div class="btn-group compact">
+                  <button :class="{ active: alignTopLayer === 'last' }" @click="setAlignTopLayer('last')">last</button>
+                  <button :class="{ active: alignTopLayer === 'ref' }" @click="setAlignTopLayer('ref')">ref</button>
+                </div>
+              </div>
+              <div class="align-video-list">
+                <div v-for="layer in alignLayers" :key="layer.id" class="align-video-row">
+                  <div class="align-video-name">{{ layer.label }}</div>
+                  <div class="align-opacity">
+                    <input type="range" min="0" max="100" step="1"
+                           :value="alignOpacity[layer.id]"
+                           @input="setAlignOpacity(layer.id, $event.target.value)" />
+                    <div class="align-opacity-value">{{ alignOpacity[layer.id] }}%</div>
+                  </div>
+                  <select class="align-filter-select"
+                          :value="alignFilter[layer.id]"
+                          @change="setAlignFilter(layer.id, $event.target.value)">
+                    <option v-for="filter in alignFilterOptions" :key="filter.id" :value="filter.id">{{ filter.label }}</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
 
-        <div class="field">
+        <div v-if="mode === 'overlay'" class="sep-h"></div>
+
+        <div v-if="mode === 'overlay'" class="field">
           <div class="lbl">grid</div>
           <div class="btn-group">
             <button :class="{ active: showGrid }" @click="showGrid = true">on</button>
@@ -571,6 +674,13 @@
 <script>
 const { createApp, ref, reactive, computed, watch, onMounted, onUnmounted } = Vue;
 const FPS = 60;
+const ALIGN_FILTERS = {
+  normal: "none",
+  invert: "invert(1)",
+  mono: "grayscale(1) contrast(1.08)",
+  cool: "grayscale(1) sepia(1) saturate(4) hue-rotate(165deg) brightness(1.05)",
+  warm: "sepia(1) saturate(4.6) hue-rotate(-18deg) brightness(1.05)",
+};
 
 const LS = {
   get(k, def) { try { const v = localStorage.getItem(k); return v !== null ? JSON.parse(v) : def; } catch { return def; } },
@@ -607,7 +717,8 @@ createApp({
       Number.isFinite(legacySeekStep) ? Math.max(1, Math.round(legacySeekStep * FPS)) : 30
     ));
     const speed       = ref(LS.get("speed", 1));
-    const mode        = ref(LS.get("mode", "split"));
+    const savedMode   = LS.get("mode", "split");
+    const mode        = ref(["split", "overlay", "align"].includes(savedMode) ? savedMode : "split");
     const showGrid    = ref(LS.get("showGrid", true));
     const sidebarOpen = ref(LS.get("sidebarOpen", true));
     const sidebarWidth = ref(LS.get("sidebarWidth", 260));
@@ -637,6 +748,33 @@ createApp({
     const refEndedStyle  = ref({});
     const layoutVersion = ref(0);
     const overlayMeasure = ref(null);
+    const alignLayers = [
+      { id: "last", label: "last" },
+      { id: "ref", label: "ref" },
+    ];
+    const alignFilterOptions = [
+      { id: "normal", label: "normal" },
+      { id: "invert", label: "invert" },
+      { id: "mono", label: "mono" },
+      { id: "cool", label: "cool" },
+      { id: "warm", label: "warm" },
+    ];
+    const alignTarget = ref("ref");
+    const alignTopLayer = ref("ref");
+    const alignOpacity = reactive({
+      last: 100,
+      ref: 50,
+    });
+    const alignFilter = reactive({
+      last: "normal",
+      ref: "normal",
+    });
+    const alignOffsets = reactive({
+      last: { x: 0, y: 0 },
+      ref: { x: 0, y: 0 },
+    });
+    const alignDrag = ref(null);
+    const alignDragging = computed(() => !!alignDrag.value);
     let nextToolWindowId = 1;
     let toolDrag = null;
     const easeDragHandle = ref(null);
@@ -855,7 +993,10 @@ createApp({
     watch(trimStart,    v => LS.set("trimStart", v));
     watch(trimDur,      v => LS.set("trimDur", v));
     watch(speed,        v => LS.set("speed", v));
-    watch(mode,         v => LS.set("mode", v));
+    watch(mode, v => {
+      LS.set("mode", v);
+      if (v !== "align") stopAlignDrag();
+    });
     watch(showGrid,     v => LS.set("showGrid", v));
     watch(sidebarOpen,  v => LS.set("sidebarOpen", v));
     watch(sidebarWidth, v => LS.set("sidebarWidth", v));
@@ -871,6 +1012,11 @@ createApp({
       const t = getSavedTimeline(v);
       masterTime = t;
       currentTime.value = t;
+    });
+    watch(videoName, () => {
+      resetAlignOffsets();
+      stopAlignDrag();
+      alignTarget.value = "ref";
     });
     watch(() => [easeTool.inX, easeTool.inY, easeTool.outX, easeTool.outY], () => {
       replayEasePreview();
@@ -1019,6 +1165,69 @@ createApp({
       [lastVideo.value, refVideo.value].forEach(v => { if (v) v.playbackRate = s; });
     }
     function setMode(m) { mode.value = m; }
+    function setAlignTarget(target) {
+      if (target === "last" || target === "ref") alignTarget.value = target;
+    }
+    function syncAlignOpacityToTop(target) {
+      alignOpacity.last = target === "last" ? 50 : 100;
+      alignOpacity.ref = target === "ref" ? 50 : 100;
+    }
+    function setAlignTopLayer(target) {
+      if (target !== "last" && target !== "ref") return;
+      alignTopLayer.value = target;
+      syncAlignOpacityToTop(target);
+    }
+    function setAlignOpacity(target, value) {
+      if (!(target in alignOpacity)) return;
+      alignOpacity[target] = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+    }
+    function setAlignFilter(target, value) {
+      if (!(target in alignFilter) || !(value in ALIGN_FILTERS)) return;
+      alignFilter[target] = value;
+    }
+    function resetAlignOffsets() {
+      alignOffsets.last.x = 0;
+      alignOffsets.last.y = 0;
+      alignOffsets.ref.x = 0;
+      alignOffsets.ref.y = 0;
+    }
+    function alignLayerStyle(target) {
+      const offset = alignOffsets[target];
+      const isTop = alignTopLayer.value === target;
+      return {
+        transform: `translate(${offset.x}px, ${offset.y}px)`,
+        zIndex: isTop ? 2 : 1,
+        opacity: alignOpacity[target] / 100,
+        filter: ALIGN_FILTERS[alignFilter[target]] || "none",
+      };
+    }
+    function onAlignPointerMove(e) {
+      const drag = alignDrag.value;
+      if (!drag) return;
+      const offset = alignOffsets[drag.target];
+      offset.x = Math.round(drag.originX + (e.clientX - drag.startX));
+      offset.y = Math.round(drag.originY + (e.clientY - drag.startY));
+    }
+    function stopAlignDrag() {
+      if (!alignDrag.value) return;
+      alignDrag.value = null;
+      window.removeEventListener("pointermove", onAlignPointerMove);
+      window.removeEventListener("pointerup", stopAlignDrag);
+    }
+    function onAlignPointerDown(e) {
+      if (mode.value !== "align" || e.button !== 0) return;
+      const target = alignTarget.value;
+      const offset = alignOffsets[target];
+      alignDrag.value = {
+        target,
+        startX: e.clientX,
+        startY: e.clientY,
+        originX: offset.x,
+        originY: offset.y,
+      };
+      window.addEventListener("pointermove", onAlignPointerMove);
+      window.addEventListener("pointerup", stopAlignDrag);
+    }
     function applySpeed(v) { if (v) v.playbackRate = speed.value; }
     function syncRef() {} // kept for compat, logic moved to applyMasterTime
 
@@ -1442,6 +1651,8 @@ createApp({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointermove", onOverlayPointerMove);
       window.removeEventListener("pointerup", onOverlayPointerUp);
+      window.removeEventListener("pointermove", onAlignPointerMove);
+      window.removeEventListener("pointerup", stopAlignDrag);
       window.removeEventListener("mousemove", onToolWindowDrag);
       window.removeEventListener("mouseup", stopToolWindowDrag);
       window.removeEventListener("pointermove", onEaseHandlePointerMove);
@@ -1460,6 +1671,9 @@ createApp({
       trimStart, trimDur, speeds, speed, setSpeed, seekStepFrames,
       FPS, tcSec, tcFr, tcToSec, setTrimStart, setTrimDur,
       mode, setMode, showGrid, sidebarOpen, sidebarWidth, resizing, onResizerDown,
+      alignLayers, alignFilterOptions, alignTarget, alignTopLayer, alignOpacity, alignFilter,
+      alignDragging, setAlignTarget, setAlignTopLayer, setAlignOpacity, setAlignFilter,
+      alignLayerStyle, onAlignPointerDown,
       lastSrc, refSrc, refKey, lastVideo, refVideo,
       playing, currentTime, duration, progressPct, overlayGrid, overlayMeasurement,
       lastEnded, refEnded, lastEndedStyle, refEndedStyle,

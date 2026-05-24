@@ -15,7 +15,7 @@ npm run render android_show_1
 
 Or call the script directly:
 ```bash
-./src/utils/runner.sh android_show_1
+./src/utils/render.sh android_show_1
 ```
 
 `<script_name>` is the `.jsx` filename **without the extension**.
@@ -26,15 +26,15 @@ Or call the script directly:
 - Opens Adobe After Effects 2026 (falls back to 2025)
 - Closes current project without saving
 - Runs `$.evalFile()` on your `.jsx` script
-- Saves the resulting AE project to `output/<name>_<timestamp>.aep`
+- Saves the resulting AE project to `output/<name>.aep`
 - Wait: **~8 seconds** for AE to finish
 
 ### Stage 2 — Render with aerender
 ```bash
 aerender \
-  -project "output/<name>_<ts>.aep" \
+  -project "output/<name>.aep" \
   -comp "<script_name>" \
-  -output "output/<name>_<ts>.mov" \
+  -output "output/<name>.mov" \
   -OMtemplate "Lossless" \
   -RStemplate "Best Settings" \
   -v ERRORS_AND_PROGRESS
@@ -48,23 +48,35 @@ aerender \
 ffmpeg -i input.mov -c:v libx264 -crf 18 -pix_fmt yuv420p output.mp4 -y
 ```
 - CRF 18 = high quality H.264
-- Creates two files:
-  - `output/<name>_<timestamp>.mp4` — timestamped archive
-  - `output/<name>_last.mp4` — always the latest (overwritten each render)
+- Creates `output/<name>_last.mp4` — always the latest (overwritten each render)
+- Pass `--backup` to also save timestamped copies
 
 ## Output Files
 
 ```
 output/
-├── android_show_1_20260522_164313.aep   ← AE project (timestamped)
-├── android_show_1_20260522_164313.mp4   ← render archive
-└── android_show_1_last.mp4              ← latest render (used by Web UI)
+├── android_show_1.aep        ← AE project (overwritten each render)
+└── android_show_1_last.mp4   ← latest render (used by Web UI)
 ```
 
 `_ref.mp4` is the reference video for comparison — place it manually:
 ```bash
 cp output/android_show_1_last.mp4 output/android_show_1_ref.mp4
 ```
+
+## AEP Roundtrip (parse existing .aep)
+
+To export an existing `.aep` → JSX → new `.aep` → MP4:
+```bash
+npm run build_aep -- src/scripts/aep/file.aep
+```
+
+To export `.aep` → JSX only:
+```bash
+npm run parse_aep -- src/scripts/aep/file.aep
+```
+
+Generated JSX lands in `src/scripts/<name>_generated.jsx`.
 
 ## Requirements
 
@@ -78,7 +90,7 @@ cp output/android_show_1_last.mp4 output/android_show_1_ref.mp4
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `aerender: command not found` | AE not at expected path | Check `AERENDER` var in `runner.sh` |
+| `aerender: command not found` | AE not at expected path | Check `AERENDER` var in `render.sh` |
 | Stage 1 hangs | AE dialog open or crashed | Quit AE manually, re-run |
 | aerender exits with comp-not-found error | Comp name ≠ script name | Match comp name in `.jsx` to filename |
 | Black video / empty comp | Script errored silently | Open AE, run script manually via File → Scripts |

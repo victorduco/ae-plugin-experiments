@@ -29,13 +29,18 @@
     gatherFootage(sorted);
 
     // ── Determine output path ─────────────────────────────────────────────────
+    // _exporterOutputPath can be set by the runner JSX before evalFile() to override the destination.
 
     var outPath = "";
-    var projFile = proj.file;
-    if (projFile) {
-        outPath = projFile.fsName.replace(/\.aep$/i, '_generated.jsx');
+    if (typeof _exporterOutputPath === "string" && _exporterOutputPath !== "") {
+        outPath = _exporterOutputPath;
     } else {
-        outPath = "/tmp/ae_generated.jsx";
+        var projFile = proj.file;
+        if (projFile) {
+            outPath = projFile.fsName.replace(/\.aep$/i, '_generated.jsx');
+        } else {
+            outPath = "/tmp/ae_generated.jsx";
+        }
     }
 
     // Tell effects module where to save .ffx presets (same dir, same base name)
