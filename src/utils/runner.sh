@@ -30,6 +30,7 @@ if [ -z "$SCRIPT_NAME" ]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$ROOT_DIR/src/utils/ae_control.sh"
 JSX_FILE="$ROOT_DIR/src/scripts/${SCRIPT_NAME}.jsx"
 OUTPUT_DIR="$ROOT_DIR/output"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -90,7 +91,8 @@ cat > "$TMP_JSX" <<EOF
 (function () {
     var errFile = new File("$BUILD_ERROR_LOG");
     try {
-        app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
+        app.beginSuppressDialogs();
+        try { app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES); } catch(e2) {}
         $.evalFile("$JSX_FILE");
         app.project.save(new File("$PROJECT_FILE"));
         errFile.open("w"); errFile.writeln("OK"); errFile.close();
@@ -100,11 +102,29 @@ cat > "$TMP_JSX" <<EOF
         errFile.writeln("line: " + e.line);
         errFile.close();
     }
+    app.endSuppressDialogs(false);
 })();
 EOF
 
+if ! ae_close_without_saving 10; then
+    echo "ERROR: Could not close After Effects cleanly before build"
+    exit 1
+fi
+sleep 1
 osascript -e "tell application \"Adobe After Effects 2026\" to DoScriptFile \"$TMP_JSX\""
-sleep 8
+SECS=0
+until [ -s "$BUILD_ERROR_LOG" ]; do
+    sleep 2; SECS=$((SECS+2))
+    if [ $SECS -ge 60 ]; then
+        echo "ERROR: AE timed out after 60s" > "$BUILD_ERROR_LOG"
+        break
+    fi
+done
+if ! ae_close_without_saving 10; then
+    echo "ERROR: Could not close After Effects cleanly after build"
+    exit 1
+fi
+sleep 1
 rm -f "$TMP_JSX"
 
 if [ -f "$BUILD_ERROR_LOG" ]; then
@@ -124,10 +144,16 @@ fi
 echo "[build] saved $PROJECT_FILE" >> "$OUTPUT_LOG"
 
 # Step 2: Render
-echo "==> [2/3] Rendering..."
+# Determine comp name: last addComp() call in the JSX is the main comp.
+# Falls back to SCRIPT_NAME if not found (hand-written scripts use that convention).
+COMP_NAME=$(grep -o 'addComp("[^"]*"' "$JSX_FILE" | tail -1 | sed 's/addComp("//;s/"//')
+if [ -z "$COMP_NAME" ]; then
+    COMP_NAME="$SCRIPT_NAME"
+fi
+echo "==> [2/3] Rendering comp: $COMP_NAME"
 "$AERENDER" \
     -project "$PROJECT_FILE" \
-    -comp "$SCRIPT_NAME" \
+    -comp "$COMP_NAME" \
     -output "$OUTPUT_MOV" \
     -OMtemplate "Lossless" \
     -RStemplate "Best Settings" \
