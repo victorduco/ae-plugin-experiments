@@ -6,5 +6,8 @@ output/*
 # logs
 logs/
 
-# generated JSX from AEP exporter (now in output/jsx/)
+# projects folder — local AEP, JSX, assets (not tracked)
+projects/
+
+# generated JSX from AEP exporter
 src/scripts/*_generated.jsx
