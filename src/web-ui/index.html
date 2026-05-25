@@ -761,19 +761,22 @@ createApp({
       { id: "cool", label: "cool" },
       { id: "warm", label: "warm" },
     ];
-    const alignTarget = ref("ref");
-    const alignTopLayer = ref("ref");
+    const alignTarget = ref(LS.get("alignTarget", "ref"));
+    const alignTopLayer = ref(LS.get("alignTopLayer", "ref"));
+    const savedAlignOpacity = LS.get("alignOpacity", { last: 100, ref: 50 });
     const alignOpacity = reactive({
-      last: 100,
-      ref: 50,
+      last: savedAlignOpacity.last ?? 100,
+      ref: savedAlignOpacity.ref ?? 50,
     });
+    const savedAlignFilter = LS.get("alignFilter", { last: "normal", ref: "normal" });
     const alignFilter = reactive({
-      last: "normal",
-      ref: "normal",
+      last: savedAlignFilter.last ?? "normal",
+      ref: savedAlignFilter.ref ?? "normal",
     });
+    const savedAlignOffsets = LS.get("alignOffsets", { last: { x: 0, y: 0 }, ref: { x: 0, y: 0 } });
     const alignOffsets = reactive({
-      last: { x: 0, y: 0 },
-      ref: { x: 0, y: 0 },
+      last: { x: savedAlignOffsets?.last?.x ?? 0, y: savedAlignOffsets?.last?.y ?? 0 },
+      ref: { x: savedAlignOffsets?.ref?.x ?? 0, y: savedAlignOffsets?.ref?.y ?? 0 },
     });
     const alignDrag = ref(null);
     const alignDragging = computed(() => !!alignDrag.value);
@@ -1010,15 +1013,28 @@ createApp({
     watch(() => easeTool.outY, v => easeTool.outY = Math.max(0, Math.min(100, Math.round(v || 0))));
     watch(() => easeTool.duration, v => easeTool.duration = Math.max(50, Math.min(10000, Math.round(v || 0))));
     watch(currentTime,  v => saveTimeline(selected.value, v));
+    watch(alignTarget,   v => LS.set("alignTarget", v));
+    watch(alignTopLayer, v => LS.set("alignTopLayer", v));
+    watch(alignOpacity,  v => LS.set("alignOpacity", { last: v.last, ref: v.ref }), { deep: true });
+    watch(alignFilter,   v => LS.set("alignFilter", { last: v.last, ref: v.ref }), { deep: true });
+    watch(alignOffsets,  v => LS.set("alignOffsets", {
+      last: { x: v.last.x, y: v.last.y },
+      ref: { x: v.ref.x, y: v.ref.y },
+    }), { deep: true });
     watch(selected, v => {
       const t = getSavedTimeline(v);
       masterTime = t;
       currentTime.value = t;
+      if (v.startsWith("open:")) refreshOpenProjects();
     });
-    watch(videoName, () => {
-      resetAlignOffsets();
+    let prevVideoName = null;
+    watch(videoName, (v) => {
+      if (prevVideoName !== null && prevVideoName !== v) {
+        resetAlignOffsets();
+        alignTarget.value = "ref";
+      }
+      prevVideoName = v;
       stopAlignDrag();
-      alignTarget.value = "ref";
     });
     watch(() => [easeTool.inX, easeTool.inY, easeTool.outX, easeTool.outY], () => {
       replayEasePreview();
@@ -1282,8 +1298,12 @@ createApp({
             lastEndedStyle.value = videoContainRect(lv);
           }
         } else {
-          lastEnded.value = false;
-          if (Math.abs(lv.currentTime - t) > FRAME_SYNC_EPSILON) lv.currentTime = t;
+          if (lastEnded.value) {
+            lastEnded.value = false;
+            lv.currentTime = t;
+          } else if (Math.abs(lv.currentTime - t) > FRAME_SYNC_EPSILON) {
+            lv.currentTime = t;
+          }
         }
       }
 
@@ -1295,33 +1315,72 @@ createApp({
             refEndedStyle.value = videoContainRect(rv);
           }
         } else {
-          refEnded.value = false;
           const refPos = trimStart.value + t;
-          if (Math.abs(rv.currentTime - refPos) > FRAME_SYNC_EPSILON) rv.currentTime = refPos;
+          if (refEnded.value) {
+            refEnded.value = false;
+            rv.currentTime = refPos;
+          } else if (Math.abs(rv.currentTime - refPos) > FRAME_SYNC_EPSILON) {
+            rv.currentTime = refPos;
+          }
         }
       }
     }
 
-    function rafTick(ts) {
-      if (lastRafTs !== null) {
-        const dt = (ts - lastRafTs) / 1000 * speed.value;
-        const total = duration.value;
-        if (total > 0) {
-          let next = masterTime + dt;
-          if (next >= total) {
-            // loop: restart everything
-            next = 0;
-            lastEnded.value = false;
-            refEnded.value = false;
-            const lv = lastVideo.value;
-            const rv = refVideo.value;
-            if (lv) { lv.currentTime = 0; lv.play().catch(() => {}); }
-            if (rv) { rv.currentTime = trimStart.value; rv.play().catch(() => {}); }
-          }
-          applyMasterTime(next);
-        }
+    let looping = false;
+
+    function doLoop() {
+      looping = true;
+      lastEnded.value = false;
+      refEnded.value = false;
+      masterTime = 0;
+      currentTime.value = 0;
+
+      const lv = lastVideo.value;
+      const rv = refVideo.value;
+      let lvReady = !lv || lastDur.value <= 0;
+      let rvReady = !rv || refEffDur.value <= 0;
+
+      function tryStart() {
+        if (!lvReady || !rvReady) return;
+        looping = false;
+        lastRafTs = null;
+        if (lv) lv.play().catch(() => {});
+        if (rv) rv.play().catch(() => {});
       }
-      lastRafTs = ts;
+
+      if (lv && lastDur.value > 0) {
+        lv.pause();
+        const onSeeked = () => { lv.removeEventListener("seeked", onSeeked); lvReady = true; tryStart(); };
+        lv.addEventListener("seeked", onSeeked);
+        lv.currentTime = 0;
+      }
+      if (rv && refEffDur.value > 0) {
+        rv.pause();
+        const onSeeked = () => { rv.removeEventListener("seeked", onSeeked); rvReady = true; tryStart(); };
+        rv.addEventListener("seeked", onSeeked);
+        rv.currentTime = trimStart.value;
+      }
+      tryStart();
+    }
+
+    function rafTick(ts) {
+      if (!looping) {
+        if (lastRafTs !== null) {
+          const dt = (ts - lastRafTs) / 1000 * speed.value;
+          const total = duration.value;
+          if (total > 0) {
+            let next = masterTime + dt;
+            if (next >= total) {
+              doLoop();
+              lastRafTs = ts;
+              rafId = requestAnimationFrame(rafTick);
+              return;
+            }
+            applyMasterTime(next);
+          }
+        }
+        lastRafTs = ts;
+      }
       rafId = requestAnimationFrame(rafTick);
     }
 
@@ -1494,7 +1553,8 @@ createApp({
       const comps = await fetch("/api/open-project-comps").then(r => r.json()).catch(() => []);
       const compName = comps[0];
       if (!compName) return;
-      const outputName = compName;
+      // output name matches what aep_to_mp4.sh actually produces (AEP basename without extension)
+      const outputName = aepPath.split("/").pop().replace(/\.aep$/i, "");
       openRenderJobs[aepPath] = { status: "running", outputName };
       const resp = await fetch("/api/render-open", {
         method: "POST",
@@ -1628,7 +1688,8 @@ createApp({
     }
 
     function seek(delta) {
-      const t = snapToFrame(Math.max(0, Math.min(duration.value, masterTime + delta)));
+      const maxT = Math.max(0, duration.value - 1 / FPS);
+      const t = snapToFrame(Math.max(0, Math.min(maxT, masterTime + delta)));
       applyMasterTime(t);
     }
     function goToStart() {
@@ -1641,21 +1702,21 @@ createApp({
     }
 
     function onKeyDown(e) {
-      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
-      if (e.code === "Space") { e.preventDefault(); togglePlay(); }
-      if (e.code === "ArrowLeft")  { e.preventDefault(); seekFrames(-seekStepFrames.value); }
-      if (e.code === "ArrowRight") { e.preventDefault(); seekFrames(seekStepFrames.value); }
+      if (e.code === "Space") { e.preventDefault(); togglePlay(); return; }
+      if (e.code === "ArrowLeft")  { e.preventDefault(); seekFrames(-seekStepFrames.value); return; }
+      if (e.code === "ArrowRight") { e.preventDefault(); seekFrames(seekStepFrames.value); return; }
     }
 
     let ro = null;
     onMounted(() => {
-      fetchPairs(); connectSSE(); refreshOpenProjects();
-      window.addEventListener("keydown", onKeyDown);
+      fetchPairs(); connectSSE();
+      refreshOpenProjects();
+      window.addEventListener("keydown", onKeyDown, true);
       ro = new ResizeObserver(updateEndedStyles);
     });
     onUnmounted(() => {
       es?.close();
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("pointermove", onOverlayPointerMove);
       window.removeEventListener("pointerup", onOverlayPointerUp);
       window.removeEventListener("pointermove", onAlignPointerMove);

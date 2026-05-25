@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 const OUTPUT_DIR = path.resolve(__dirname, "../../output");
+const SCRIPTS_AEP_DIR = path.resolve(__dirname, "../scripts/aep");
 const AEP_TO_MP4_SH = path.resolve(__dirname, "../utils/aep_to_mp4.sh");
 const PORT = 3131;
 
@@ -22,15 +23,22 @@ const sseClients = new Set();
 
 fs.watch(OUTPUT_DIR, { persistent: true }, (_eventType, filename) => {
   if (!filename) return;
-  const f = filename.toString();
-  const ext = path.extname(f);
+  const ext = path.extname(filename.toString());
   if (ext === ".mp4") {
     for (const res of sseClients) res.write("data: refresh\n\n");
-  } else if (ext === ".aep") {
-    const aepPath = path.join(OUTPUT_DIR, f);
-    for (const res of sseClients) res.write(`data: aep-changed:${aepPath}\n\n`);
   }
 });
+
+if (fs.existsSync(SCRIPTS_AEP_DIR)) {
+  fs.watch(SCRIPTS_AEP_DIR, { persistent: true }, (_eventType, filename) => {
+    if (!filename) return;
+    const ext = path.extname(filename.toString());
+    if (ext === ".aep") {
+      const aepPath = path.join(SCRIPTS_AEP_DIR, filename.toString());
+      for (const res of sseClients) res.write(`data: aep-changed:${aepPath}\n\n`);
+    }
+  });
+}
 
 // Watch index.html — send reload event to all clients on change
 fs.watch(path.join(__dirname, "index.html"), () => {
@@ -114,7 +122,7 @@ const server = http.createServer((req, res) => {
       return;
     }
     const name = path.basename(url.searchParams.get("name") || "");
-    const file = path.join(OUTPUT_DIR, `${name}.aep`);
+    const file = path.join(OUTPUT_DIR, "aep", `${name}.aep`);
     if (!name || !fs.existsSync(file)) {
       res.writeHead(404, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
       res.end(JSON.stringify({ ok: false, error: "AEP not found" }));
