@@ -5,9 +5,21 @@
 
 set -euo pipefail
 
-SCRIPT_NAME="$1"
+SCRIPT_NAME=""
+WAIT_AE=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --wait-ae) WAIT_AE=1; shift ;;
+        *)
+            if [ -z "$SCRIPT_NAME" ]; then
+                SCRIPT_NAME="$1"; shift
+            else
+                echo "ERROR: Unknown argument: $1"; exit 1
+            fi ;;
+    esac
+done
 if [ -z "$SCRIPT_NAME" ]; then
-    echo "Usage: jsx_to_aep.sh <script_name>"
+    echo "Usage: jsx_to_aep.sh <script_name> [--wait-ae]"
     exit 1
 fi
 
@@ -27,6 +39,7 @@ PROJECT_FILE="$AEP_DIR/${SCRIPT_NAME}.aep"
 mkdir -p "$AEP_DIR"
 
 echo "==> JSX → AEP: $SCRIPT_NAME"
+_t0=$(python3 -c "import time; print(int(time.time()*1000))")
 
 BUILD_ERROR_LOG="/tmp/ae_build_error_$$.txt"
 rm -f "$BUILD_ERROR_LOG"
@@ -50,12 +63,15 @@ cat > "$TMP_JSX" <<EOF
     app.endSuppressDialogs(false);
 })();
 EOF
+_t1=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] prep + write tmp jsx: $((_t1 - _t0))ms"
 
 if ! ae_close_without_saving 10; then
     echo "ERROR: Could not close After Effects cleanly before build"; exit 1
 fi
+_t2=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] ae_close_before: $((_t2 - _t1))ms"
 sleep 1
 osascript -e "tell application \"Adobe After Effects 2026\" to DoScriptFile \"$TMP_JSX\""
+_t3=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] osascript DoScriptFile (returned): $((_t3 - _t2))ms"
 SECS=0
 until [ -s "$BUILD_ERROR_LOG" ]; do
     sleep 2; SECS=$((SECS+2))
@@ -63,10 +79,19 @@ until [ -s "$BUILD_ERROR_LOG" ]; do
         echo "ERROR: AE timed out after 60s" > "$BUILD_ERROR_LOG"; break
     fi
 done
-if ! ae_close_without_saving 10; then
-    echo "ERROR: Could not close After Effects cleanly after build"; exit 1
+_t4=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] wait for AE to finish script + save: $((_t4 - _t3))ms"
+if [ "$WAIT_AE" -eq 1 ]; then
+    if ! ae_close_without_saving 10; then
+        echo "ERROR: Could not close After Effects cleanly after build"; exit 1
+    fi
+    _t5=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] ae_close_after: $((_t5 - _t4))ms"
+else
+    osascript >/dev/null 2>&1 <<'APPLESCRIPT' &
+try
+    tell application "Adobe After Effects 2026" to quit
+end try
+APPLESCRIPT
 fi
-sleep 1
 rm -f "$TMP_JSX"
 
 if [ -f "$BUILD_ERROR_LOG" ]; then

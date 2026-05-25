@@ -4,7 +4,9 @@
   "scripts": {
     "jsx_to_aep": "src/utils/jsx_to_aep.sh",
     "aep_to_mp4": "src/utils/aep_to_mp4.sh",
+    "jsx_to_mp4": "src/utils/jsx_to_mp4.sh",
     "aep_to_jsx": "src/aep_exporter/aep_to_jsx.sh",
-    "ui": "src/utils/ui.sh"
+    "ui": "src/utils/ui.sh",
+    "monitor": "src/utils/monitor.sh"
   }
 }

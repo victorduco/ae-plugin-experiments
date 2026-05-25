@@ -15,6 +15,14 @@
   .stage {
     flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; overflow: hidden;
   }
+  .stage.color-picker-active .videos-split,
+  .stage.color-picker-active .videos-overlay,
+  .stage.color-picker-active .videos-align,
+  .stage.color-picker-active .video-wrap,
+  .stage.color-picker-active .overlay-hit-area,
+  .stage.color-picker-active .align-hit-area {
+    cursor: crosshair !important;
+  }
 
   /* menu icon — floats over video, doesn't take layout space */
   .menu-btn {
@@ -86,6 +94,44 @@
     fill: #79a9ff; stroke: rgba(10,14,20,0.95); stroke-width: 2; cursor: grab;
   }
   .ease-handle.active { cursor: grabbing; }
+  .color-picker-preview {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px; border-radius: 10px; background: #121418; border: 1px solid #2a2d33;
+  }
+  .color-picker-swatch {
+    width: 58px; height: 58px; border-radius: 12px; flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.22);
+  }
+  .color-picker-preview-text {
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .color-picker-status {
+    font-size: 12px; color: #ddd; line-height: 1.35;
+  }
+  .color-picker-meta {
+    font-size: 11px; color: #6e7480; line-height: 1.35;
+  }
+  .color-picker-list {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .color-picker-value {
+    width: 100%; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid #2a2d33; background: #121418; color: #d7dbe3;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    cursor: pointer; text-align: left;
+  }
+  .color-picker-value:hover {
+    border-color: #3b4554; background: #151920;
+  }
+  .color-picker-value-label {
+    font-size: 11px; color: #7b8390; flex-shrink: 0;
+  }
+  .color-picker-value-text {
+    font-size: 12px; color: #e7ebf2;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 
   /* split */
   .videos-split {
@@ -335,7 +381,7 @@
 </head>
 <body>
 <div id="app">
-  <div class="stage">
+  <div class="stage" :class="{ 'color-picker-active': colorPickerActive }">
     <template v-if="videoName">
       <!-- SPLIT -->
       <div v-if="mode === 'split'" class="videos-split">
@@ -481,11 +527,35 @@
                :style="easePreview.dotStyle"></div>
         </div>
       </div>
+      <div class="tool-window-body" v-else-if="win.type === 'color-picker'">
+        <div class="color-picker-preview">
+          <div class="color-picker-swatch" :style="{ background: colorPickerTool.hex }"></div>
+          <div class="color-picker-preview-text">
+            <div class="color-picker-status">{{ colorPickerTool.status }}</div>
+            <div class="color-picker-meta">{{ colorPickerTool.meta }}</div>
+          </div>
+        </div>
+        <div class="color-picker-list">
+          <button class="color-picker-value" @click="copyColorPickerValue('ae')">
+            <span class="color-picker-value-label">AE RGB</span>
+            <span class="color-picker-value-text">{{ colorPickerTool.ae }}</span>
+          </button>
+          <button class="color-picker-value" @click="copyColorPickerValue('hex')">
+            <span class="color-picker-value-label">Hex</span>
+            <span class="color-picker-value-text">{{ colorPickerTool.hex }}</span>
+          </button>
+          <button class="color-picker-value" @click="copyColorPickerValue('rgb')">
+            <span class="color-picker-value-label">RGB</span>
+            <span class="color-picker-value-text">{{ colorPickerTool.rgb }}</span>
+          </button>
+        </div>
+      </div>
     </div>
     <button class="menu-btn" @click="sidebarOpen = !sidebarOpen">☰</button>
     <button class="menu-btn tools-btn" @click.stop="toolsMenuOpen = !toolsMenuOpen">⚙</button>
     <div v-if="toolsMenuOpen" class="tools-menu">
       <button @click="openToolWindow('ease-visualizer')">Ease Visualizer</button>
+      <button @click="openToolWindow('color-picker')">Color Picker</button>
     </div>
   </div>
 
@@ -733,6 +803,13 @@ createApp({
       outY: 100,
       duration: 1200,
     });
+    const colorPickerTool = reactive({
+      hex: "#000000",
+      rgb: "rgb(0, 0, 0)",
+      ae: "[0, 0, 0]",
+      status: "click on the preview to sample",
+      meta: "copies AE RGB on click; close the window to stop",
+    });
     const easePreviewRun = ref(0);
     const easePreviewActive = ref(false);
 
@@ -783,6 +860,7 @@ createApp({
     let nextToolWindowId = 1;
     let toolDrag = null;
     const easeDragHandle = ref(null);
+    const colorPickerActive = computed(() => toolWindows.value.some(w => w.type === "color-picker"));
 
     function getSavedTimelineMap() {
       return LS.get("timelineByProject", {});
@@ -1039,6 +1117,17 @@ createApp({
     watch(() => [easeTool.inX, easeTool.inY, easeTool.outX, easeTool.outY], () => {
       replayEasePreview();
     });
+    watch(colorPickerActive, active => {
+      if (active) {
+        colorPickerTool.status = "click on the preview to sample";
+        colorPickerTool.meta = "copies AE RGB on click; close the window to stop";
+        window.addEventListener("pointerdown", onColorPickerPointerDown, true);
+      } else {
+        colorPickerTool.status = "picker stopped";
+        colorPickerTool.meta = "open Color Picker again to resume sampling";
+        window.removeEventListener("pointerdown", onColorPickerPointerDown, true);
+      }
+    });
 
     function cubicBezierPoint(t, x1, y1, x2, y2) {
       const mt = 1 - t;
@@ -1060,6 +1149,182 @@ createApp({
     function cubicBezierCoordDerivative(t, a1, a2) {
       const mt = 1 - t;
       return 3 * mt * mt * a1 + 6 * mt * t * (a2 - a1) + 3 * t * t * (1 - a2);
+    }
+    function toHexByte(value) {
+      return Math.max(0, Math.min(255, Math.round(value || 0))).toString(16).padStart(2, "0").toUpperCase();
+    }
+    function rgbToHex(r, g, b) {
+      return `#${toHexByte(r)}${toHexByte(g)}${toHexByte(b)}`;
+    }
+    function fmtAeChannel(value) {
+      const n = Math.max(0, Math.min(1, (value || 0) / 255));
+      return (Math.round(n * 10000) / 10000).toFixed(4).replace(/0+$/, "").replace(/\.$/, ".0");
+    }
+    function formatAeColor(r, g, b) {
+      return `[${fmtAeChannel(r)}, ${fmtAeChannel(g)}, ${fmtAeChannel(b)}]`;
+    }
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+    }
+    function createSampleCanvas(width, height) {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(width));
+      canvas.height = Math.max(1, Math.round(height));
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return null;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      return { canvas, ctx };
+    }
+    function getDisplayedVideoRect(el) {
+      if (!el) return null;
+      const bounds = el.getBoundingClientRect();
+      const contain = videoContainRect(el);
+      const left = bounds.left + parseFloat(contain.left);
+      const top = bounds.top + parseFloat(contain.top);
+      const width = parseFloat(contain.width);
+      const height = parseFloat(contain.height);
+      if (!Number.isFinite(left) || !Number.isFinite(top) || !width || !height) return null;
+      return { left, top, width, height };
+    }
+    function canvasPixelToColor(ctx, x, y) {
+      const px = ctx.getImageData(
+        Math.max(0, Math.min(ctx.canvas.width - 1, Math.floor(x))),
+        Math.max(0, Math.min(ctx.canvas.height - 1, Math.floor(y))),
+        1,
+        1
+      ).data;
+      return { r: px[0], g: px[1], b: px[2], a: px[3] };
+    }
+    function applyPickedColor(sample) {
+      colorPickerTool.hex = rgbToHex(sample.r, sample.g, sample.b);
+      colorPickerTool.rgb = `rgb(${sample.r}, ${sample.g}, ${sample.b})`;
+      colorPickerTool.ae = formatAeColor(sample.r, sample.g, sample.b);
+      colorPickerTool.status = `copied ${colorPickerTool.ae}`;
+      colorPickerTool.meta = `${sample.source} · x ${sample.x}, y ${sample.y}`;
+      copyText(colorPickerTool.ae);
+    }
+    function sampleSplitVideo(video, label, clientX, clientY) {
+      if (!video || video.readyState < 2) return null;
+      const bounds = video.getBoundingClientRect();
+      if (clientX < bounds.left || clientX > bounds.right || clientY < bounds.top || clientY > bounds.bottom) return null;
+      const surface = createSampleCanvas(video.clientWidth, video.clientHeight);
+      if (!surface) return null;
+      const contain = videoContainRect(video);
+      const left = parseFloat(contain.left);
+      const top = parseFloat(contain.top);
+      const width = parseFloat(contain.width);
+      const height = parseFloat(contain.height);
+      surface.ctx.drawImage(video, left, top, width, height);
+      const localX = clientX - bounds.left;
+      const localY = clientY - bounds.top;
+      return {
+        ...canvasPixelToColor(surface.ctx, localX, localY),
+        source: label,
+        x: Math.max(0, Math.round(localX)),
+        y: Math.max(0, Math.round(localY)),
+      };
+    }
+    function drawAlignLayer(ctx, target, viewportRect, containerRect) {
+      const video = target === "last" ? lastVideo.value : refVideo.value;
+      if (!video || video.readyState < 2) return;
+      const offset = alignOffsets[target];
+      const effect = ALIGN_EFFECTS[alignFilter[target]] || ALIGN_EFFECTS.normal;
+      ctx.save();
+      ctx.globalAlpha = alignOpacity[target] / 100;
+      ctx.filter = effect.filter || "none";
+      ctx.globalCompositeOperation = effect.blendMode === "screen" ? "screen" : "source-over";
+      ctx.drawImage(
+        video,
+        viewportRect.left - containerRect.left + offset.x,
+        viewportRect.top - containerRect.top + offset.y,
+        viewportRect.width,
+        viewportRect.height
+      );
+      ctx.restore();
+    }
+    function sampleOverlayComposite(clientX, clientY) {
+      const container = document.querySelector(".videos-overlay");
+      const viewportSource = getDisplayedVideoRect(lastVideo.value?.videoWidth ? lastVideo.value : refVideo.value);
+      if (!container || !viewportSource) return null;
+      const containerRect = container.getBoundingClientRect();
+      if (clientX < containerRect.left || clientX > containerRect.right || clientY < containerRect.top || clientY > containerRect.bottom) return null;
+      const surface = createSampleCanvas(container.clientWidth, container.clientHeight);
+      if (!surface) return null;
+      const left = viewportSource.left - containerRect.left;
+      const top = viewportSource.top - containerRect.top;
+      if (lastVideo.value?.readyState >= 2) {
+        surface.ctx.globalAlpha = 1;
+        surface.ctx.drawImage(lastVideo.value, left, top, viewportSource.width, viewportSource.height);
+      }
+      if (refVideo.value?.readyState >= 2) {
+        surface.ctx.globalAlpha = 0.5;
+        surface.ctx.drawImage(refVideo.value, left, top, viewportSource.width, viewportSource.height);
+      }
+      surface.ctx.globalAlpha = 1;
+      const localX = clientX - containerRect.left;
+      const localY = clientY - containerRect.top;
+      return {
+        ...canvasPixelToColor(surface.ctx, localX, localY),
+        source: "overlay composite",
+        x: Math.max(0, Math.round(localX)),
+        y: Math.max(0, Math.round(localY)),
+      };
+    }
+    function sampleAlignComposite(clientX, clientY) {
+      const container = document.querySelector(".videos-align");
+      const viewportSource = getDisplayedVideoRect(lastVideo.value?.videoWidth ? lastVideo.value : refVideo.value);
+      if (!container || !viewportSource) return null;
+      const containerRect = container.getBoundingClientRect();
+      if (clientX < containerRect.left || clientX > containerRect.right || clientY < containerRect.top || clientY > containerRect.bottom) return null;
+      const surface = createSampleCanvas(container.clientWidth, container.clientHeight);
+      if (!surface) return null;
+      const drawOrder = alignTopLayer.value === "last" ? ["ref", "last"] : ["last", "ref"];
+      drawOrder.forEach(target => drawAlignLayer(surface.ctx, target, viewportSource, containerRect));
+      const localX = clientX - containerRect.left;
+      const localY = clientY - containerRect.top;
+      return {
+        ...canvasPixelToColor(surface.ctx, localX, localY),
+        source: "align composite",
+        x: Math.max(0, Math.round(localX)),
+        y: Math.max(0, Math.round(localY)),
+      };
+    }
+    function sampleColorAtClient(clientX, clientY) {
+      if (mode.value === "split") {
+        return sampleSplitVideo(lastVideo.value, "last", clientX, clientY)
+          || sampleSplitVideo(refVideo.value, "ref", clientX, clientY);
+      }
+      if (mode.value === "overlay") return sampleOverlayComposite(clientX, clientY);
+      if (mode.value === "align") return sampleAlignComposite(clientX, clientY);
+      return null;
+    }
+    function onColorPickerPointerDown(e) {
+      if (!colorPickerActive.value || e.button !== 0) return;
+      if (e.target instanceof Element && e.target.closest(".tool-window, .tools-menu, .menu-btn, .sidebar, .controls")) return;
+      const sample = sampleColorAtClient(e.clientX, e.clientY);
+      if (!sample) return;
+      e.preventDefault();
+      e.stopPropagation();
+      applyPickedColor(sample);
+    }
+    async function copyColorPickerValue(kind) {
+      const text = kind === "hex" ? colorPickerTool.hex
+        : kind === "rgb" ? colorPickerTool.rgb
+        : colorPickerTool.ae;
+      await copyText(text);
+      colorPickerTool.status = `copied ${text}`;
     }
     function cubicBezierYForX(x, x1, y1, x2, y2) {
       let t = x;
@@ -1147,10 +1412,11 @@ createApp({
         return;
       }
       const title = type === "ease-visualizer" ? "Ease Visualizer" : type;
+      const mappedTitle = type === "color-picker" ? "Color Picker" : title;
       toolWindows.value.push({
         id: nextToolWindowId++,
         type,
-        title,
+        title: mappedTitle,
         x: 28 + toolWindows.value.length * 18,
         y: 84 + toolWindows.value.length * 18,
       });
@@ -1497,18 +1763,7 @@ createApp({
       const value = overlayMeasurement.value?.value;
       if (value == null) return;
       const text = `${value} px`;
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
+      await copyText(text);
     }
     async function copyEaseValues() {
       const text = [
@@ -1521,18 +1776,7 @@ createApp({
         `In → KeyframeEase(speed=${clampedEaseInY.value}, influence=${clampedEaseInX.value})`,
         `Out → KeyframeEase(speed=${clampedEaseOutY.value}, influence=${clampedEaseOutX.value})`,
       ].join("\n");
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
+      await copyText(text);
     }
     async function refreshOpenProjects() {
       const data = await fetch("/api/open-projects").then(r => r.json()).catch(() => []);
@@ -1725,6 +1969,7 @@ createApp({
       window.removeEventListener("mouseup", stopToolWindowDrag);
       window.removeEventListener("pointermove", onEaseHandlePointerMove);
       window.removeEventListener("pointerup", stopEaseHandleDrag);
+      window.removeEventListener("pointerdown", onColorPickerPointerDown, true);
       stopRaf();
       stopAutoRender();
       ro?.disconnect();
@@ -1745,11 +1990,11 @@ createApp({
       lastSrc, refSrc, refKey, lastVideo, refVideo,
       playing, currentTime, duration, progressPct, overlayGrid, overlayMeasurement,
       lastEnded, refEnded, lastEndedStyle, refEndedStyle,
-      toolsMenuOpen, toolWindows, easeTool, easeGraph, easePreview,
+      toolsMenuOpen, toolWindows, easeTool, easeGraph, easePreview, colorPickerTool, colorPickerActive,
       togglePlay, goToStart, seekFrames, onLastLoaded, onRefLoaded, onLastTime, onRefTime,
       onOverlayPointerDown, copyMeasurementValue, openAeProject,
       openToolWindow, closeToolWindow, focusToolWindow, startToolWindowDrag,
-      easeDragHandle, startEaseHandleDrag, onEaseGraphPointerDown, replayEasePreview, copyEaseValues,
+      easeDragHandle, startEaseHandleDrag, onEaseGraphPointerDown, replayEasePreview, copyEaseValues, copyColorPickerValue,
       fmtTime, fmt2, onScrubStart,
     };
   }

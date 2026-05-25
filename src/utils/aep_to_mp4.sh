@@ -8,16 +8,18 @@ set -euo pipefail
 SCRIPT_NAME=""
 BACKUP=0
 COMP_OVERRIDE=""
+PREVIEW=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --backup|-b) BACKUP=1; shift ;;
         --comp) COMP_OVERRIDE="$2"; shift 2 ;;
+        --preview|-p) PREVIEW=1; shift ;;
         *)
             if [ -z "$SCRIPT_NAME" ]; then
                 SCRIPT_NAME="$1"; shift
             else
                 echo "ERROR: Unknown argument: $1"
-                echo "Usage: aep_to_mp4.sh <script_name> [--comp <comp_name>] [--backup]"
+                echo "Usage: aep_to_mp4.sh <script_name> [--comp <comp_name>] [--preview] [--backup]"
                 exit 1
             fi
             ;;
@@ -25,7 +27,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$SCRIPT_NAME" ]; then
-    echo "Usage: aep_to_mp4.sh <script_name|path/to/file.aep> [--comp <comp_name>] [--backup]"
+    echo "Usage: aep_to_mp4.sh <script_name|path/to/file.aep> [--comp <comp_name>] [--preview] [--backup]"
     exit 1
 fi
 
@@ -107,21 +109,37 @@ if [ -z "$COMP_NAME" ]; then
     COMP_NAME="$SCRIPT_NAME"
 fi
 
-echo "==> AEP → MP4: $COMP_NAME"
+_t0=$(python3 -c "import time; print(int(time.time()*1000))")
+if [ "$PREVIEW" -eq 1 ]; then
+    echo "==> AEP → MP4 (preview: quarter res, half fps): $COMP_NAME"
+    RENDER_SETTINGS="Resolution: Quarter"
+    FRAME_STEP="-i 2"
+else
+    echo "==> AEP → MP4: $COMP_NAME"
+    RENDER_SETTINGS="Resolution: Full"
+    FRAME_STEP=""
+fi
 "$AERENDER" \
     -project "$PROJECT_FILE" \
     -comp "$COMP_NAME" \
     -output "$OUTPUT_MOV" \
     -OMtemplate "Lossless" \
     -RStemplate "Best Settings" \
+    -renderSettings "$RENDER_SETTINGS" \
+    $FRAME_STEP \
+    -mfr ON 100 \
+    -mem_usage 50 80 \
     -v ERRORS_AND_PROGRESS >> "$OUTPUT_LOG" 2>&1
+_t1=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] aerender: $((_t1 - _t0))ms"
 
 echo "==> Converting to MP4..."
-ffmpeg -i "$OUTPUT_MOV" -c:v libx264 -crf 18 -pix_fmt yuv420p "$OUTPUT_MP4" -y >> "$OUTPUT_LOG" 2>&1
+ffmpeg -i "$OUTPUT_MOV" -c:v libx264 -crf 18 -preset ultrafast -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" "$OUTPUT_MP4" -y >> "$OUTPUT_LOG" 2>&1
+_t2=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] ffmpeg mov→mp4: $((_t2 - _t1))ms"
 
 rm -f "$OUTPUT_MOV"
 cp "$OUTPUT_MP4" "$OUTPUT_LAST"
 rm -f "$OUTPUT_MP4"
+_t3=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] copy+cleanup: $((_t3 - _t2))ms"
 
 cleanup_script_outputs
 
