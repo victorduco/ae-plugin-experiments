@@ -11,10 +11,9 @@ description: Export AEP to JSX (aep_to_jsx). Use when parsing an existing .aep f
 # AEP → JSX only
 npm run aep_to_jsx -- src/scripts/aep/file.aep
 
-# Full roundtrip: AEP → JSX → AEP → MP4
+# Full roundtrip with fast UI preview: AEP → JSX → AEP → current frame PNG → MP4
 npm run aep_to_jsx -- src/scripts/aep/file.aep
-npm run jsx_to_aep <name>_generated
-npm run aep_to_mp4 <name>_generated
+./src/utils/jsx_to_current_frame_and_mp4.sh <name>_generated --frame 84
 ```
 
 Output JSX lands in `output/jsx/<name>_generated.jsx`.
@@ -26,12 +25,14 @@ src/scripts/aep/file.aep
         ↓  aep_to_jsx.sh
         ↓  opens AEP in AE, runs aep_exporter_bundle.jsx
 output/jsx/file_generated.jsx
-        ↓  jsx_to_aep.sh
-        ↓  evalFile in AE, saves project
-output/aep/file.aep
-        ↓  aep_to_mp4.sh (aerender + ffmpeg)
-output/file_last.mp4
+        ↓  jsx_to_current_frame_and_mp4.sh
+        ↓  jsx_to_aep.sh, then aep_to_frame.sh, then aep_to_mp4.sh
+output/file_generated_current_frame.png
+        ↓  shown in UI first
+output/file_generated_last.mp4
 ```
+
+If the user explicitly wants only the final video, the older split flow (`jsx_to_aep` → `aep_to_mp4`) is still valid.
 
 ## Exporter Source
 

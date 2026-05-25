@@ -5,27 +5,68 @@ const path = require("path");
 
 const OUTPUT_DIR = path.resolve(__dirname, "../../output");
 const SCRIPTS_AEP_DIR = path.resolve(__dirname, "../scripts/aep");
-const AEP_TO_MP4_SH = path.resolve(__dirname, "../utils/aep_to_mp4.sh");
+const AEP_TO_CURRENT_FRAME_AND_MP4_SH = path.resolve(__dirname, "../utils/aep_to_current_frame_and_mp4.sh");
 const PORT = 3131;
 
-const renderJobs = new Map(); // outputName → { status, log }
+const renderJobs = new Map(); // outputName → { status, stage, frameReady, framePath, outputName, log }
 
 const MIME = {
   ".html": "text/html",
   ".js": "application/javascript",
   ".css": "text/css",
   ".mp4": "video/mp4",
+  ".png": "image/png",
   ".json": "application/json",
 };
 
 // SSE clients for auto-refresh
 const sseClients = new Set();
 
+function broadcastSse(data) {
+  for (const res of sseClients) res.write(`data: ${data}\n\n`);
+}
+
+function updateRenderJob(outputName, patch) {
+  const job = renderJobs.get(outputName);
+  if (!job) return;
+  Object.assign(job, patch);
+  broadcastSse(`render-job:${outputName}`);
+}
+
+function appendRenderOutput(outputName, chunk) {
+  const job = renderJobs.get(outputName);
+  if (!job) return;
+
+  const text = chunk.toString();
+  job.log += text;
+
+  let didChange = false;
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    const stageMatch = line.match(/^JOB_STAGE:\s*([a-z_]+)/);
+    if (stageMatch) {
+      job.stage = stageMatch[1];
+      didChange = true;
+    }
+    if (/^JOB_FRAME_READY:\s*1/.test(line)) {
+      job.frameReady = true;
+      didChange = true;
+    }
+    const errorStageMatch = line.match(/^JOB_ERROR_STAGE:\s*([a-z_]+)/);
+    if (errorStageMatch) {
+      job.errorStage = errorStageMatch[1];
+      didChange = true;
+    }
+  }
+
+  if (didChange) broadcastSse(`render-job:${outputName}`);
+}
+
 fs.watch(OUTPUT_DIR, { persistent: true }, (_eventType, filename) => {
   if (!filename) return;
   const ext = path.extname(filename.toString());
   if (ext === ".mp4") {
-    for (const res of sseClients) res.write("data: refresh\n\n");
+    broadcastSse("refresh");
   }
 });
 
@@ -35,14 +76,14 @@ if (fs.existsSync(SCRIPTS_AEP_DIR)) {
     const ext = path.extname(filename.toString());
     if (ext === ".aep") {
       const aepPath = path.join(SCRIPTS_AEP_DIR, filename.toString());
-      for (const res of sseClients) res.write(`data: aep-changed:${aepPath}\n\n`);
+      broadcastSse(`aep-changed:${aepPath}`);
     }
   });
 }
 
 // Watch index.html — send reload event to all clients on change
 fs.watch(path.join(__dirname, "index.html"), () => {
-  for (const res of sseClients) res.write("data: dev-reload\n\n");
+  broadcastSse("dev-reload");
 });
 
 function getVideoPairs() {
@@ -194,15 +235,16 @@ const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", chunk => { body += chunk; });
     req.on("end", () => {
-      let aepPath, compName, outputName;
+      let aepPath, compName, outputName, frame;
       try {
-        ({ aepPath, compName, outputName } = JSON.parse(body));
+        ({ aepPath, compName, outputName, frame } = JSON.parse(body));
       } catch {
         res.writeHead(400, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
         res.end(JSON.stringify({ ok: false, error: "Bad JSON" }));
         return;
       }
-      if (!aepPath || !compName || !outputName) {
+      const frameNumber = Number.parseInt(frame, 10);
+      if (!aepPath || !compName || !outputName || !Number.isFinite(frameNumber) || frameNumber < 0) {
         res.writeHead(400, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
         res.end(JSON.stringify({ ok: false, error: "Missing params" }));
         return;
@@ -214,17 +256,31 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ ok: false, error: "Already rendering" }));
         return;
       }
-      renderJobs.set(safeName, { status: "running", log: "" });
+      renderJobs.set(safeName, {
+        status: "running",
+        stage: "queued",
+        frameReady: false,
+        framePath: `/output/${safeName}_current_frame.png`,
+        outputName: safeName,
+        log: "",
+        errorStage: "",
+      });
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
       res.end(JSON.stringify({ ok: true, outputName: safeName }));
-      const child = spawn(AEP_TO_MP4_SH, [aepPath, "--comp", compName], { stdio: ["ignore", "pipe", "pipe"] });
-      const appendLog = d => { renderJobs.get(safeName).log += d.toString(); };
+      broadcastSse(`render-job:${safeName}`);
+      const child = spawn(AEP_TO_CURRENT_FRAME_AND_MP4_SH, [aepPath, "--comp", compName, "--frame", String(frameNumber)], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const appendLog = d => appendRenderOutput(safeName, d);
       child.stdout.on("data", appendLog);
       child.stderr.on("data", appendLog);
       child.on("close", code => {
-        const job = renderJobs.get(safeName);
-        if (job) job.status = code === 0 ? "done" : "error";
-        for (const res of sseClients) res.write("data: refresh\n\n");
+        if (code === 0) {
+          updateRenderJob(safeName, { status: "done", stage: "done", frameReady: false });
+        } else {
+          updateRenderJob(safeName, { status: "error", stage: "error" });
+        }
+        broadcastSse("refresh");
       });
     });
     return;
@@ -240,7 +296,16 @@ const server = http.createServer((req, res) => {
       return;
     }
     res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-    res.end(JSON.stringify({ ok: true, status: job.status, log: job.log }));
+    res.end(JSON.stringify({
+      ok: true,
+      status: job.status,
+      stage: job.stage,
+      frameReady: !!job.frameReady,
+      framePath: job.framePath,
+      outputName: job.outputName,
+      errorStage: job.errorStage,
+      log: job.log,
+    }));
     return;
   }
 

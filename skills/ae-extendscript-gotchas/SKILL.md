@@ -414,6 +414,48 @@ for (var s = 0; s < steps; s++) {
 
 ---
 
+## 19. Variable fonts (Google Sans Flex) — устанавливать через `font` строку, НЕ через аниматор
+
+**Шрифт:** `GoogleSansFlex-Regular` (файл: `~/Library/Fonts/GoogleSansFlex-VariableFont_GRAD,ROND,opsz,slnt,wdth,wght.ttf`)
+
+### Как задать оси — через `textDoc.font`
+
+AE кодирует активные оси прямо в строке `font` объекта `TextDocument`. Устанавливай нужные оси так:
+
+```jsx
+var sourceProp = tl.property("ADBE Text Properties").property("ADBE Text Document");
+var td = sourceProp.value;
+td.font = "GoogleSansFlex_400.000wght_100.000ROND";
+sourceProp.setValue(td);
+```
+
+**Формат строки:**
+```
+GoogleSansFlex_{value}.000{axisTag}_{value}.000{axisTag}...
+```
+- `{value}` — числовое значение оси
+- `.000` — три десятичных знака (всегда нули для целых)
+- `{axisTag}` — 4-буквенный тег оси
+
+**Оси Google Sans Flex:**
+
+| Тег | Название | Пример |
+|---|---|---|
+| `wght` | Weight | `400.000wght` |
+| `ROND` | Roundness | `100.000ROND` |
+| `opsz` | Optical Size | `46.000opsz` |
+| `GRAD` | Grade | `0.000GRAD` |
+| `slnt` | Slant | `-10.000slnt` |
+| `wdth` | Width | `100.000wdth` |
+
+Включай только нужные оси — остальные примут дефолтные значения шрифта. Без осей: `font = "GoogleSansFlex-Regular"`.
+
+**`fontStyle`** обновляется автоматически вместе с `font` и отражает текущие значения осей в читаемом виде.
+
+> **Не используй Text Animator для установки VF Axis** — добавить оси в аниматор через скрипт невозможно (`addProperty` бросает ошибку для всех `ADBE Text VF Axis N`). Только через UI.
+
+---
+
 ## Property matchNames (rect shape)
 
 Useful when `property("Display Name")` fails — use matchName instead:

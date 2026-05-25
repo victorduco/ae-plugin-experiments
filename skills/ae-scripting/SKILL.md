@@ -116,11 +116,18 @@ Web UI features:
 - **Split / Overlay** modes to compare `_last.mp4` vs `_ref.mp4`
 - Playback speed: 0.1x → 1x
 - Auto-refresh via SSE when output folder changes
+- For open AEP renders, the UI can show `*_current_frame.png` first, then swap to `*_last.mp4`
 
-To render and then view:
+Recommended preview loop for scripting work:
+```bash
+# render frame 84 first, then full MP4
+./src/utils/jsx_to_current_frame_and_mp4.sh android_show_1 --frame 84
+# UI shows the PNG immediately, then auto-swaps to the MP4
+```
+
+If the user explicitly wants only the final video or only the build step, use the older split flow:
 ```bash
 npm run jsx_to_aep android_show_1 && npm run aep_to_mp4 android_show_1
-# then check the browser — UI auto-refreshes
 ```
 
 ## Sub-comps
@@ -168,8 +175,11 @@ Most critical ones:
 
 ## Tips
 
-- **Font names:** use PostScript names (`Arial-BoldMT`, `Helvetica-Bold`), not display names
+- **Font names:** use PostScript names (`Arial-BoldMT`, `Helvetica-Bold`), not display names. Для variable fonts (Google Sans Flex) — см. gotcha #19 в `ae-extendscript-gotchas`
 - **Colors:** always `[R, G, B]` in 0..1 range
 - **Comp name = file name** (without `.jsx`) — the runner depends on this
 - `$.evalFile(new File("/abs/path.jsx"))` is how the runner loads your script into AE
 - Avoid `alert()` — it blocks AE; use `$.writeln()` for debug (goes to ExtendScript console)
+- **После правок в JSX** — по умолчанию запускай новый frame-first flow через `jsx_to_current_frame_and_mp4`, чтобы UI быстрее показал пользователю текущий кадр
+- Если рендер идёт из открытого проекта в UI, сам UI передаёт текущий кадр в render script
+- Старый split flow (`jsx_to_aep` → `aep_to_mp4`) используй только если пользователь явно просит build-only, video-only или не нужен быстрый current-frame preview

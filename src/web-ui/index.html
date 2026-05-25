@@ -141,6 +141,7 @@
   .video-cell { display: flex; flex-direction: row; background: #111; overflow: hidden; align-items: stretch; min-height: 0; }
   .video-wrap { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; display: flex; }
   .video-wrap video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  .video-wrap img.frame-preview { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
   .video-ended-overlay { position: absolute; background: #f00; pointer-events: none; }
 
   /* overlay */
@@ -151,6 +152,10 @@
   .videos-overlay video,
   .videos-align video {
     position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+  }
+  .videos-overlay img.frame-preview,
+  .videos-align img.frame-preview {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: block;
   }
   .videos-overlay video.on-top { opacity: 0.5; }
   .videos-overlay .video-ended-overlay { z-index: 2; }
@@ -229,6 +234,9 @@
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
   .play-btn:hover { background: #252525; }
+  .play-btn:disabled {
+    background: #181818; color: #444; border-color: #2a2a2a; cursor: default;
+  }
   .transport-btn {
     min-width: 38px; height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid #333;
     background: #1e1e1e; color: #888; cursor: pointer; font-size: 11px;
@@ -236,10 +244,26 @@
     font-variant-numeric: tabular-nums;
   }
   .transport-btn:hover { background: #252525; color: #ccc; }
+  .transport-btn:disabled {
+    background: #181818; color: #444; border-color: #2a2a2a; cursor: default;
+  }
   .scrubber { flex: 1; height: 3px; background: #2a2a2a; border-radius: 2px; cursor: pointer; }
   .scrubber-fill { height: 100%; background: #555; border-radius: 2px; pointer-events: none; }
   .scrubber:hover .scrubber-fill { background: #888; }
+  .scrubber.locked { cursor: default; opacity: 0.55; }
+  .scrubber.locked:hover .scrubber-fill { background: #555; }
   .time-lbl { font-size: 11px; color: #444; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .render-pill {
+    flex-shrink: 0; padding: 4px 8px; border-radius: 999px; border: 1px solid #333;
+    background: #1c1c1c; color: #888; font-size: 10px; line-height: 1; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .render-pill.rendering {
+    color: #f0b85a; border-color: #6a4a10; background: #21180b;
+  }
+  .render-pill.error {
+    color: #eb7474; border-color: #5a2020; background: #231212;
+  }
 
   .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #2a2a2a; font-size: 13px; }
 
@@ -387,7 +411,9 @@
       <div v-if="mode === 'split'" class="videos-split">
         <div class="video-cell">
           <div class="video-wrap">
-            <video ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
+            <img v-if="showFramePreview" ref="lastFrameImage" class="frame-preview" :key="frameSrc" :src="frameSrc"
+                 @load="onLastFrameLoaded" />
+            <video v-else ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
                    @loadedmetadata="onLastLoaded" @timeupdate="onLastTime"></video>
             <div v-if="lastEnded" class="video-ended-overlay" :style="lastEndedStyle"></div>
           </div>
@@ -403,13 +429,15 @@
 
       <!-- OVERLAY -->
       <div v-else-if="mode === 'overlay'" class="videos-overlay">
-        <video ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
+        <img v-if="showFramePreview" ref="lastFrameImage" class="frame-preview" :key="frameSrc" :src="frameSrc"
+             @load="onLastFrameLoaded" />
+        <video v-else ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
                @loadedmetadata="onLastLoaded" @timeupdate="onLastTime"></video>
         <div v-if="lastEnded" class="video-ended-overlay" :style="lastEndedStyle"></div>
         <video ref="refVideo" :key="refKey" :src="refSrc" muted class="on-top"
                @loadedmetadata="onRefLoaded" @timeupdate="onRefTime"></video>
         <div v-if="refEnded" class="video-ended-overlay on-top" :style="refEndedStyle"></div>
-        <div class="overlay-hit-area" @pointerdown="onOverlayPointerDown"></div>
+        <div v-if="!renderPreviewLocked" class="overlay-hit-area" @pointerdown="onOverlayPointerDown"></div>
         <div v-if="showGrid && overlayGrid" class="overlay-grid" :style="overlayGrid.style">
           <div v-for="line in overlayGrid.verticalLines" :key="`vx-${line.value}`"
                class="overlay-grid-line-x" :class="{ major: line.major, center: line.center }"
@@ -451,7 +479,9 @@
       <!-- ALIGN -->
       <div v-else class="videos-align">
         <div class="align-layer" :style="alignLayerStyle('last')">
-          <video ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
+          <img v-if="showFramePreview" ref="lastFrameImage" class="frame-preview" :key="frameSrc" :src="frameSrc"
+               @load="onLastFrameLoaded" />
+          <video v-else ref="lastVideo" :key="lastSrc" :src="lastSrc" muted
                  @loadedmetadata="onLastLoaded" @timeupdate="onLastTime"></video>
           <div v-if="lastEnded" class="video-ended-overlay" :style="lastEndedStyle"></div>
         </div>
@@ -460,7 +490,7 @@
                  @loadedmetadata="onRefLoaded" @timeupdate="onRefTime"></video>
           <div v-if="refEnded" class="video-ended-overlay" :style="refEndedStyle"></div>
         </div>
-        <div class="align-hit-area"
+        <div v-if="!renderPreviewLocked" class="align-hit-area"
              :style="{ cursor: alignDragging ? 'grabbing' : 'grab' }"
              @pointerdown.prevent="onAlignPointerDown"></div>
       </div>
@@ -589,7 +619,7 @@
                 :disabled="currentOpenRenderStatus === 'running'"
                 @click="renderCurrentOpenProject"
                 style="flex:1">
-                {{ currentOpenRenderStatus === 'running' ? 'rendering…' : 'render' }}
+                {{ currentOpenRenderLabel }}
               </button>
               <button class="render-open-btn" @click="toggleAutoRender" style="flex-shrink:0">
                 {{ autoRender ? 'auto on' : 'auto' }}
@@ -722,18 +752,19 @@
       <div class="sidebar-bottom">
         <div class="timeline-row">
           <span class="time-lbl">{{ fmtTime(currentTime) }}</span>
-          <div class="scrubber" @mousedown="onScrubStart">
+          <div class="scrubber" :class="{ locked: renderPreviewLocked }" @mousedown="onScrubStart">
             <div class="scrubber-fill" :style="{ width: progressPct + '%' }"></div>
           </div>
+          <span v-if="renderStatusBadge" class="render-pill" :class="renderStatusBadge.tone">{{ renderStatusBadge.text }}</span>
           <span class="time-lbl">{{ fmtTime(duration) }}</span>
         </div>
         <div class="transport-row">
-          <button class="play-btn" @click="togglePlay">{{ playing ? '⏸' : '▶' }}</button>
-          <button class="transport-btn" @click="goToStart">0</button>
-          <button class="transport-btn" @click="seekFrames(-seekStepFrames)">←{{ seekStepFrames }}f</button>
-          <button class="transport-btn" @click="seekFrames(-1)">←1f</button>
-          <button class="transport-btn" @click="seekFrames(1)">1f→</button>
-          <button class="transport-btn" @click="seekFrames(seekStepFrames)">{{ seekStepFrames }}f→</button>
+          <button class="play-btn" :disabled="renderPreviewLocked" @click="togglePlay">{{ playing ? '⏸' : '▶' }}</button>
+          <button class="transport-btn" :disabled="renderPreviewLocked" @click="goToStart">0</button>
+          <button class="transport-btn" :disabled="renderPreviewLocked" @click="seekFrames(-seekStepFrames)">←{{ seekStepFrames }}f</button>
+          <button class="transport-btn" :disabled="renderPreviewLocked" @click="seekFrames(-1)">←1f</button>
+          <button class="transport-btn" :disabled="renderPreviewLocked" @click="seekFrames(1)">1f→</button>
+          <button class="transport-btn" :disabled="renderPreviewLocked" @click="seekFrames(seekStepFrames)">{{ seekStepFrames }}f→</button>
         </div>
       </div>
     </div>
@@ -777,6 +808,7 @@ createApp({
       return `${mins} min ago`;
     });
     let autoRenderTimer = null;
+    const renderPollTimers = new Map();
     const selected    = ref(LS.get("selected", ""));
     const trimStart   = ref(LS.get("trimStart", 0));
     const trimDur     = ref(LS.get("trimDur", null));
@@ -814,6 +846,7 @@ createApp({
     const easePreviewActive = ref(false);
 
     const lastVideo   = ref(null);
+    const lastFrameImage = ref(null);
     const refVideo    = ref(null);
     const videoStage  = ref(null);
     const playing     = ref(false);
@@ -877,10 +910,18 @@ createApp({
       LS.set("timelineByProject", map);
     }
 
-    function videoContainRect(el) {
+    function mediaSize(el) {
+      if (!el) return { width: 0, height: 0 };
+      return {
+        width: el.videoWidth || el.naturalWidth || 0,
+        height: el.videoHeight || el.naturalHeight || 0,
+      };
+    }
+
+    function mediaContainRect(el) {
       if (!el) return {};
       const cw = el.clientWidth, ch = el.clientHeight;
-      const vw = el.videoWidth,  vh = el.videoHeight;
+      const { width: vw, height: vh } = mediaSize(el);
       if (!vw || !vh) return { left: 0, top: 0, width: cw + 'px', height: ch + 'px' };
       const scale = Math.min(cw / vw, ch / vh);
       const rw = vw * scale, rh = vh * scale;
@@ -893,19 +934,53 @@ createApp({
     }
 
     function updateEndedStyles() {
-      if (lastEnded.value) lastEndedStyle.value = videoContainRect(lastVideo.value);
-      if (refEnded.value)  refEndedStyle.value  = videoContainRect(refVideo.value);
+      if (lastEnded.value) lastEndedStyle.value = mediaContainRect(lastVideo.value);
+      if (refEnded.value)  refEndedStyle.value  = mediaContainRect(refVideo.value);
       layoutVersion.value += 1;
     }
 
     const isOpenProject = computed(() => selected.value.startsWith("open:"));
     const pairName = computed(() => isOpenProject.value ? "" : selected.value);
     const openProjectPath = computed(() => isOpenProject.value ? selected.value.slice(5) : "");
-
-    const videoName = computed(() => pairName.value || openRenderedComp.value);
+    const currentOpenRenderJob = computed(() => openRenderJobs[openProjectPath.value] || null);
+    const openOutputName = computed(() => currentOpenRenderJob.value?.outputName || openRenderedComp.value);
+    const videoName = computed(() => pairName.value || openOutputName.value);
     const lastSrc = computed(() => videoName.value ? `/output/${videoName.value}_last.mp4?t=${ts.value}` : "");
     const refSrc  = computed(() => videoName.value ? `/output/${videoName.value}_ref.mp4?t=${ts.value}` : "");
     const refKey  = computed(() => `${refSrc.value}-${trimStart.value}-${trimDur.value}`);
+    const frameSrc = computed(() => {
+      const framePath = currentOpenRenderJob.value?.framePath;
+      return framePath ? `${framePath}?t=${ts.value}` : "";
+    });
+    const showFramePreview = computed(() => !!(
+      isOpenProject.value &&
+      currentOpenRenderJob.value?.frameReady &&
+      currentOpenRenderJob.value?.status !== "done"
+    ));
+    const renderPreviewLocked = computed(() => !!(
+      isOpenProject.value &&
+      currentOpenRenderJob.value?.status === "running" &&
+      currentOpenRenderJob.value?.frameReady
+    ));
+    const renderStatusBadge = computed(() => {
+      if (!isOpenProject.value) return null;
+      const job = currentOpenRenderJob.value;
+      if (!job) return null;
+      if (job.status === "running" && job.stage === "build") {
+        return { tone: "rendering", text: "building" };
+      }
+      if (job.status === "running" && !job.frameReady) {
+        return { tone: "rendering", text: job.stage === "frame_rendering" ? "rendering frame" : "rendering" };
+      }
+      if (job.status === "running" && job.frameReady) {
+        return { tone: "rendering", text: "frame ready / video render" };
+      }
+      if (job.status === "error") {
+        return { tone: "error", text: "render error" };
+      }
+      return null;
+    });
+    const lastPreviewMedia = computed(() => showFramePreview.value ? lastFrameImage.value : lastVideo.value);
 
     // effective ref duration = trimDur if set, else natural duration minus trimStart
     const refEffDur = computed(() => {
@@ -919,14 +994,14 @@ createApp({
     const progressPct = computed(() => duration.value ? (currentTime.value / duration.value) * 100 : 0);
     const overlayViewport = computed(() => {
       layoutVersion.value;
-      const baseVideo = lastVideo.value?.videoWidth ? lastVideo.value : (refVideo.value?.videoWidth ? refVideo.value : null);
-      if (!baseVideo) return null;
+      const primaryMedia = mediaSize(lastPreviewMedia.value).width ? lastPreviewMedia.value
+        : (mediaSize(refVideo.value).width ? refVideo.value : null);
+      if (!primaryMedia) return null;
 
-      const videoW = baseVideo.videoWidth;
-      const videoH = baseVideo.videoHeight;
+      const { width: videoW, height: videoH } = mediaSize(primaryMedia);
       if (!videoW || !videoH) return null;
 
-      const rect = videoContainRect(baseVideo);
+      const rect = mediaContainRect(primaryMedia);
       const widthPx = parseFloat(rect.width);
       const heightPx = parseFloat(rect.height);
       const leftPx = parseFloat(rect.left);
@@ -1190,7 +1265,7 @@ createApp({
     function getDisplayedVideoRect(el) {
       if (!el) return null;
       const bounds = el.getBoundingClientRect();
-      const contain = videoContainRect(el);
+      const contain = mediaContainRect(el);
       const left = bounds.left + parseFloat(contain.left);
       const top = bounds.top + parseFloat(contain.top);
       const width = parseFloat(contain.width);
@@ -1221,7 +1296,7 @@ createApp({
       if (clientX < bounds.left || clientX > bounds.right || clientY < bounds.top || clientY > bounds.bottom) return null;
       const surface = createSampleCanvas(video.clientWidth, video.clientHeight);
       if (!surface) return null;
-      const contain = videoContainRect(video);
+      const contain = mediaContainRect(video);
       const left = parseFloat(contain.left);
       const top = parseFloat(contain.top);
       const width = parseFloat(contain.width);
@@ -1501,7 +1576,7 @@ createApp({
       window.removeEventListener("pointerup", stopAlignDrag);
     }
     function onAlignPointerDown(e) {
-      if (mode.value !== "align" || e.button !== 0) return;
+      if (renderPreviewLocked.value || mode.value !== "align" || e.button !== 0) return;
       const target = alignTarget.value;
       const offset = alignOffsets[target];
       alignDrag.value = {
@@ -1561,7 +1636,7 @@ createApp({
         if (t >= lastDur.value) {
           if (!lastEnded.value) {
             lv.pause(); lastEnded.value = true;
-            lastEndedStyle.value = videoContainRect(lv);
+            lastEndedStyle.value = mediaContainRect(lv);
           }
         } else {
           if (lastEnded.value) {
@@ -1578,7 +1653,7 @@ createApp({
         if (t >= refEffDur.value) {
           if (!refEnded.value) {
             rv.pause(); refEnded.value = true;
-            refEndedStyle.value = videoContainRect(rv);
+            refEndedStyle.value = mediaContainRect(rv);
           }
         } else {
           const refPos = trimStart.value + t;
@@ -1654,6 +1729,7 @@ createApp({
     function stopRaf()  { if (rafId) { cancelAnimationFrame(rafId); rafId = null; lastRafTs = null; } }
 
     function togglePlay() {
+      if (renderPreviewLocked.value) return;
       const lv = lastVideo.value; const rv = refVideo.value;
       if (playing.value) {
         lv?.pause(); rv?.pause(); playing.value = false; stopRaf();
@@ -1742,6 +1818,7 @@ createApp({
       window.removeEventListener("pointerup", onOverlayPointerUp);
     }
     function onOverlayPointerDown(e) {
+      if (renderPreviewLocked.value) return;
       if (mode.value !== "overlay" || !pointInVideo(e.clientX, e.clientY)) return;
       if (overlayMeasure.value && !overlayMeasure.value.active && !pointNearMeasurement(e.clientX, e.clientY)) {
         overlayMeasure.value = null;
@@ -1782,14 +1859,78 @@ createApp({
       const data = await fetch("/api/open-projects").then(r => r.json()).catch(() => []);
       openProjects.value = data;
     }
-    const currentOpenRenderStatus = computed(() => openRenderJobs[openProjectPath.value]?.status || "");
+    const currentOpenRenderStatus = computed(() => currentOpenRenderJob.value?.status || "");
     const currentOpenRenderLabel = computed(() => {
-      const s = currentOpenRenderStatus.value;
-      if (s === "running") return "rendering…";
-      if (s === "done")    return "done ✓";
-      if (s === "error")   return "error";
+      const job = currentOpenRenderJob.value;
+      if (!job) return "render";
+      if (job.status === "running" && job.stage === "frame_rendering") return "frame...";
+      if (job.status === "running" && job.stage === "video_rendering") return "video...";
+      if (job.status === "running" && job.stage === "build") return "build...";
+      if (job.status === "running") return "rendering...";
+      if (job.status === "done")    return "done ✓";
+      if (job.status === "error")   return "error";
       return "render";
     });
+    function stopRenderPoll(aepPath) {
+      const poll = renderPollTimers.get(aepPath);
+      if (!poll) return;
+      clearInterval(poll);
+      renderPollTimers.delete(aepPath);
+    }
+    function stopAllRenderPolls() {
+      for (const [aepPath, poll] of renderPollTimers.entries()) {
+        clearInterval(poll);
+        renderPollTimers.delete(aepPath);
+      }
+    }
+    function applyOpenRenderJob(aepPath, safeName, next) {
+      const prev = openRenderJobs[aepPath] || {};
+      const job = {
+        ...prev,
+        ...next,
+        outputName: safeName,
+        framePath: next.framePath || prev.framePath || `/output/${safeName}_current_frame.png`,
+      };
+      const becameFrameReady = !prev.frameReady && !!job.frameReady;
+      openRenderJobs[aepPath] = job;
+      if (becameFrameReady && job.status === "running") {
+        pausePlayback();
+        lastDur.value = 0;
+        lastEnded.value = false;
+        ts.value = Date.now();
+      }
+      if (job.status === "done") {
+        openRenderedComp.value = safeName;
+        lastRenderTime.value = new Date();
+        ts.value = Date.now();
+        stopRenderPoll(aepPath);
+      } else if (job.status === "error") {
+        stopRenderPoll(aepPath);
+      }
+    }
+    async function refreshRenderJob(aepPath, safeName) {
+      if (!aepPath || !safeName) return;
+      const s = await fetch(`/api/render-status?name=${encodeURIComponent(safeName)}`).then(r => r.json()).catch(() => null);
+      if (!s?.ok) return;
+      applyOpenRenderJob(aepPath, safeName, {
+        status: s.status,
+        stage: s.stage,
+        frameReady: s.frameReady,
+        framePath: s.framePath,
+        errorStage: s.errorStage,
+      });
+    }
+    function startRenderPoll(aepPath, safeName) {
+      stopRenderPoll(aepPath);
+      const poll = setInterval(() => { refreshRenderJob(aepPath, safeName); }, 700);
+      renderPollTimers.set(aepPath, poll);
+    }
+    function getCurrentRenderFrame() {
+      if (duration.value <= 0) return 0;
+      const maxT = Math.max(0, duration.value - 1 / FPS);
+      const t = snapToFrame(Math.max(0, Math.min(currentTime.value || 0, maxT)));
+      return tcFrames(t);
+    }
     async function renderCurrentOpenProject() {
       const aepPath = openProjectPath.value;
       if (!aepPath) return;
@@ -1799,30 +1940,25 @@ createApp({
       if (!compName) return;
       // output name matches what aep_to_mp4.sh actually produces (AEP basename without extension)
       const outputName = aepPath.split("/").pop().replace(/\.aep$/i, "");
-      openRenderJobs[aepPath] = { status: "running", outputName };
+      const frame = getCurrentRenderFrame();
+      openRenderedComp.value = outputName;
+      applyOpenRenderJob(aepPath, outputName, {
+        status: "running",
+        stage: "queued",
+        frameReady: false,
+      });
       const resp = await fetch("/api/render-open", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ aepPath, compName, outputName }),
+        body: JSON.stringify({ aepPath, compName, outputName, frame }),
       }).then(r => r.json()).catch(() => ({ ok: false }));
       if (!resp.ok) {
-        openRenderJobs[aepPath] = { status: "error", outputName };
+        applyOpenRenderJob(aepPath, outputName, { status: "error", stage: "error", frameReady: false });
         return;
       }
       const safeName = resp.outputName;
-      const poll = setInterval(async () => {
-        const s = await fetch(`/api/render-status?name=${encodeURIComponent(safeName)}`).then(r => r.json()).catch(() => null);
-        if (!s) return;
-        openRenderJobs[aepPath] = { status: s.status, outputName: safeName };
-        if (s.status !== "running") {
-          clearInterval(poll);
-          if (s.status === "done") {
-            openRenderedComp.value = safeName;
-            lastRenderTime.value = new Date();
-            ts.value = Date.now(); // reload video
-          }
-        }
-      }, 2000);
+      startRenderPoll(aepPath, safeName);
+      refreshRenderJob(aepPath, safeName);
     }
 
     function stopAutoRender() {
@@ -1847,6 +1983,13 @@ createApp({
       layoutVersion.value += 1;
       ro?.observe(v);
       restorePlaybackPosition();
+    }
+    function onLastFrameLoaded() {
+      const img = lastFrameImage.value; if (!img) return;
+      lastDur.value = 0;
+      lastEnded.value = false;
+      layoutVersion.value += 1;
+      ro?.observe(img);
     }
     function onRefLoaded() {
       const rv = refVideo.value; if (!rv) return;
@@ -1874,6 +2017,7 @@ createApp({
     }
 
     function onScrubStart(e) {
+      if (renderPreviewLocked.value) return;
       pausePlayback();
       scrubTo(e);
       const onMove = e2 => scrubTo(e2);
@@ -1923,6 +2067,10 @@ createApp({
           if (autoRender.value && openProjectPath.value === changedPath) {
             renderCurrentOpenProject();
           }
+        } else if (data.startsWith("render-job:")) {
+          const safeName = data.slice("render-job:".length);
+          const aepPath = Object.keys(openRenderJobs).find(key => openRenderJobs[key]?.outputName === safeName);
+          if (aepPath) refreshRenderJob(aepPath, safeName);
         } else {
           ts.value = Date.now();
           fetchPairs();
@@ -1932,20 +2080,27 @@ createApp({
     }
 
     function seek(delta) {
+      if (renderPreviewLocked.value) return;
       const maxT = Math.max(0, duration.value - 1 / FPS);
       const t = snapToFrame(Math.max(0, Math.min(maxT, masterTime + delta)));
       applyMasterTime(t);
     }
     function goToStart() {
+      if (renderPreviewLocked.value) return;
       pausePlayback();
       applyMasterTime(0);
     }
     function seekFrames(frames) {
+      if (renderPreviewLocked.value) return;
       pausePlayback();
       seek(framesToSeconds(frames));
     }
 
     function onKeyDown(e) {
+      if (renderPreviewLocked.value && (e.code === "Space" || e.code === "ArrowLeft" || e.code === "ArrowRight")) {
+        e.preventDefault();
+        return;
+      }
       if (e.code === "Space") { e.preventDefault(); togglePlay(); return; }
       if (e.code === "ArrowLeft")  { e.preventDefault(); seekFrames(-seekStepFrames.value); return; }
       if (e.code === "ArrowRight") { e.preventDefault(); seekFrames(seekStepFrames.value); return; }
@@ -1972,13 +2127,14 @@ createApp({
       window.removeEventListener("pointerdown", onColorPickerPointerDown, true);
       stopRaf();
       stopAutoRender();
+      stopAllRenderPolls();
       ro?.disconnect();
     });
 
     return {
       pairs, selected, openProjects, openProjectComps, selectedOpenComp, openRenderJobs,
       isOpenProject, pairName, videoName, openProjectPath,
-      currentOpenRenderStatus, currentOpenRenderLabel,
+      currentOpenRenderStatus, currentOpenRenderLabel, showFramePreview, renderPreviewLocked, renderStatusBadge, frameSrc,
       autoRender, lastRenderLabel, now,
       refreshOpenProjects, renderCurrentOpenProject, toggleAutoRender,
       trimStart, trimDur, speeds, speed, setSpeed, seekStepFrames,
@@ -1987,11 +2143,11 @@ createApp({
       alignLayers, alignFilterOptions, alignTarget, alignTopLayer, alignOpacity, alignFilter,
       alignDragging, setAlignTarget, setAlignTopLayer, setAlignOpacity, setAlignFilter,
       alignLayerStyle, onAlignPointerDown,
-      lastSrc, refSrc, refKey, lastVideo, refVideo,
+      lastSrc, refSrc, refKey, lastVideo, lastFrameImage, refVideo,
       playing, currentTime, duration, progressPct, overlayGrid, overlayMeasurement,
       lastEnded, refEnded, lastEndedStyle, refEndedStyle,
       toolsMenuOpen, toolWindows, easeTool, easeGraph, easePreview, colorPickerTool, colorPickerActive,
-      togglePlay, goToStart, seekFrames, onLastLoaded, onRefLoaded, onLastTime, onRefTime,
+      togglePlay, goToStart, seekFrames, onLastLoaded, onLastFrameLoaded, onRefLoaded, onLastTime, onRefTime,
       onOverlayPointerDown, copyMeasurementValue, openAeProject,
       openToolWindow, closeToolWindow, focusToolWindow, startToolWindowDrag,
       easeDragHandle, startEaseHandleDrag, onEaseGraphPointerDown, replayEasePreview, copyEaseValues, copyColorPickerValue,

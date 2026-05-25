@@ -32,35 +32,27 @@ if [ -z "$SCRIPT_NAME" ]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$ROOT_DIR/src/utils/render_common.sh"
 
 AEP_DIR="$ROOT_DIR/output/aep"
 OUTPUT_DIR="$ROOT_DIR/output"
 LOGS_DIR="$ROOT_DIR/logs"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 
-# Accept either a bare script name or a full path to an .aep file
-if [[ "$SCRIPT_NAME" == *.aep ]]; then
-    PROJECT_FILE="$(cd "$(dirname "$SCRIPT_NAME")" && pwd)/$(basename "$SCRIPT_NAME")"
-    SCRIPT_NAME="$(basename "${SCRIPT_NAME%.aep}")"
-else
-    PROJECT_FILE="$AEP_DIR/${SCRIPT_NAME}.aep"
-fi
+IFS=$'\t' read -r PROJECT_FILE SCRIPT_NAME <<EOF
+$(ae_resolve_project_file_and_name "$ROOT_DIR" "$SCRIPT_NAME")
+EOF
 OUTPUT_MOV="$OUTPUT_DIR/${SCRIPT_NAME}.mov"
 OUTPUT_MP4="$OUTPUT_DIR/${SCRIPT_NAME}.mp4"
 OUTPUT_LOG="$LOGS_DIR/${SCRIPT_NAME}.log"
 OUTPUT_LAST="$OUTPUT_DIR/${SCRIPT_NAME}_last.mp4"
 OUTPUT_REF="$OUTPUT_DIR/${SCRIPT_NAME}_ref.mp4"
+OUTPUT_FRAME_PREVIEW="$(ae_frame_preview_path "$ROOT_DIR" "$SCRIPT_NAME")"
 BACKUP_PROJECT_FILE="$AEP_DIR/${SCRIPT_NAME}_${TIMESTAMP}.aep"
 BACKUP_OUTPUT_MP4="$OUTPUT_DIR/${SCRIPT_NAME}_${TIMESTAMP}.mp4"
 BACKUP_OUTPUT_LOG="$LOGS_DIR/${SCRIPT_NAME}_${TIMESTAMP}.log"
 
-AERENDER="/Applications/Adobe After Effects 2026/aerender"
-if [ ! -f "$AERENDER" ]; then
-    AERENDER="/Applications/Adobe After Effects 2025/aerender"
-fi
-if [ ! -f "$AERENDER" ]; then
-    echo "ERROR: aerender not found"; exit 1
-fi
+AERENDER="$(ae_resolve_aerender)"
 
 if [ ! -f "$PROJECT_FILE" ]; then
     echo "ERROR: AEP not found: $PROJECT_FILE"; exit 1
@@ -68,22 +60,6 @@ fi
 
 mkdir -p "$OUTPUT_DIR" "$AEP_DIR" "$LOGS_DIR"
 rm -f "$OUTPUT_MOV"
-
-cleanup_script_outputs() {
-    find "$OUTPUT_DIR" -maxdepth 1 -type f \( \
-        -name "${SCRIPT_NAME}_*.mp4" -o \
-        -name "${SCRIPT_NAME}_*.mov" \
-    \) \
-    ! -name "${SCRIPT_NAME}_last.mp4" \
-    ! -name "${SCRIPT_NAME}_ref.mp4" \
-    -delete
-    find "$AEP_DIR" -maxdepth 1 -type f \
-        -name "${SCRIPT_NAME}_*.aep" \
-        -delete
-    find "$LOGS_DIR" -maxdepth 1 -type f \
-        -name "${SCRIPT_NAME}_*.log" \
-        -delete
-}
 
 : > "$OUTPUT_LOG"
 {
@@ -94,37 +70,24 @@ cleanup_script_outputs() {
     echo "aerender=$AERENDER"
 } >> "$OUTPUT_LOG"
 
-# Determine comp name: explicit --comp flag, then JSX, then script name
-COMP_NAME="$COMP_OVERRIDE"
-if [ -z "$COMP_NAME" ]; then
-    JSX_FILE="$ROOT_DIR/src/scripts/${SCRIPT_NAME}.jsx"
-    if [ ! -f "$JSX_FILE" ]; then
-        JSX_FILE="$ROOT_DIR/output/jsx/${SCRIPT_NAME}.jsx"
-    fi
-    if [ -f "$JSX_FILE" ]; then
-        COMP_NAME=$(grep -o 'addComp("[^"]*"' "$JSX_FILE" | tail -1 | sed 's/addComp("//;s/"//')
-    fi
-fi
-if [ -z "$COMP_NAME" ]; then
-    COMP_NAME="$SCRIPT_NAME"
-fi
+COMP_NAME="$(ae_resolve_comp_name "$ROOT_DIR" "$SCRIPT_NAME" "$COMP_OVERRIDE")"
 
 _t0=$(python3 -c "import time; print(int(time.time()*1000))")
 if [ "$PREVIEW" -eq 1 ]; then
     echo "==> AEP → MP4 (preview: quarter res, half fps): $COMP_NAME"
-    RENDER_SETTINGS="Resolution: Quarter"
+    RENDER_SETTINGS="$AE_RENDER_SETTINGS_PREVIEW"
     FRAME_STEP="-i 2"
 else
     echo "==> AEP → MP4: $COMP_NAME"
-    RENDER_SETTINGS="Resolution: Full"
+    RENDER_SETTINGS="$AE_RENDER_SETTINGS_FULL"
     FRAME_STEP=""
 fi
 "$AERENDER" \
     -project "$PROJECT_FILE" \
     -comp "$COMP_NAME" \
     -output "$OUTPUT_MOV" \
-    -OMtemplate "Lossless" \
-    -RStemplate "Best Settings" \
+    -OMtemplate "$AE_OM_TEMPLATE" \
+    -RStemplate "$AE_RS_TEMPLATE" \
     -renderSettings "$RENDER_SETTINGS" \
     $FRAME_STEP \
     -mfr ON 100 \
@@ -133,15 +96,16 @@ fi
 _t1=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] aerender: $((_t1 - _t0))ms"
 
 echo "==> Converting to MP4..."
-ffmpeg -i "$OUTPUT_MOV" -c:v libx264 -crf 18 -preset ultrafast -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" "$OUTPUT_MP4" -y >> "$OUTPUT_LOG" 2>&1
+ffmpeg -i "$OUTPUT_MOV" "${AE_FFMPEG_MP4_ARGS[@]}" "$OUTPUT_MP4" -y >> "$OUTPUT_LOG" 2>&1
 _t2=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] ffmpeg mov→mp4: $((_t2 - _t1))ms"
 
 rm -f "$OUTPUT_MOV"
 cp "$OUTPUT_MP4" "$OUTPUT_LAST"
 rm -f "$OUTPUT_MP4"
+rm -f "$OUTPUT_FRAME_PREVIEW"
 _t3=$(python3 -c "import time; print(int(time.time()*1000))"); echo "[timing] copy+cleanup: $((_t3 - _t2))ms"
 
-cleanup_script_outputs
+ae_cleanup_script_outputs "$OUTPUT_DIR" "$AEP_DIR" "$LOGS_DIR" "$SCRIPT_NAME"
 
 if [ "$BACKUP" -eq 1 ]; then
     cp "$PROJECT_FILE" "$BACKUP_PROJECT_FILE"
