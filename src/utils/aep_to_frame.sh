@@ -7,17 +7,19 @@ set -euo pipefail
 SCRIPT_NAME=""
 COMP_OVERRIDE=""
 FRAME_NUMBER=""
+OUTPUT_STEM=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --comp) COMP_OVERRIDE="$2"; shift 2 ;;
         --frame) FRAME_NUMBER="$2"; shift 2 ;;
+        --output-stem) OUTPUT_STEM="$2"; shift 2 ;;
         *)
             if [ -z "$SCRIPT_NAME" ]; then
                 SCRIPT_NAME="$1"; shift
             else
                 echo "ERROR: Unknown argument: $1"
-                echo "Usage: aep_to_frame.sh <script_name|path/to/file.aep> --frame <frame_number> [--comp <comp_name>]"
+                echo "Usage: aep_to_frame.sh <script_name|path/to/file.aep> --frame <frame_number> [--comp <comp_name>] [--output-stem <name>]"
                 exit 1
             fi
             ;;
@@ -25,7 +27,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$SCRIPT_NAME" ] || [ -z "$FRAME_NUMBER" ]; then
-    echo "Usage: aep_to_frame.sh <script_name|path/to/file.aep> --frame <frame_number> [--comp <comp_name>]"
+    echo "Usage: aep_to_frame.sh <script_name|path/to/file.aep> --frame <frame_number> [--comp <comp_name>] [--output-stem <name>]"
     exit 1
 fi
 
@@ -47,9 +49,13 @@ IFS=$'\t' read -r PROJECT_FILE SCRIPT_NAME <<EOF
 $(ae_resolve_project_file_and_name "$ROOT_DIR" "$SCRIPT_NAME")
 EOF
 
-OUTPUT_LOG="$LOGS_DIR/${SCRIPT_NAME}_frame.log"
-OUTPUT_MOV="$OUTPUT_DIR/${SCRIPT_NAME}_current_frame.mov"
-OUTPUT_FRAME="$(ae_frame_preview_path "$ROOT_DIR" "$SCRIPT_NAME")"
+if [ -z "$OUTPUT_STEM" ]; then
+    OUTPUT_STEM="$SCRIPT_NAME"
+fi
+
+OUTPUT_LOG="$LOGS_DIR/${OUTPUT_STEM}_frame.log"
+OUTPUT_MOV="$OUTPUT_DIR/${OUTPUT_STEM}_current_frame.mov"
+OUTPUT_FRAME="$(ae_frame_preview_path "$ROOT_DIR" "$OUTPUT_STEM")"
 AERENDER="$(ae_resolve_aerender)"
 COMP_NAME="$(ae_resolve_comp_name "$ROOT_DIR" "$SCRIPT_NAME" "$COMP_OVERRIDE")"
 

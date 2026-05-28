@@ -65,7 +65,7 @@ function appendRenderOutput(outputName, chunk) {
 fs.watch(OUTPUT_DIR, { persistent: true }, (_eventType, filename) => {
   if (!filename) return;
   const ext = path.extname(filename.toString());
-  if (ext === ".mp4") {
+  if (ext === ".mp4" || ext === ".png" || ext === ".json") {
     broadcastSse("refresh");
   }
 });
@@ -101,6 +101,30 @@ function getVideoPairs() {
     if (refs.has(name)) pairs.push(name);
   }
   return pairs.sort();
+}
+
+function getRenderStatusFilePath(outputName) {
+  return path.join(OUTPUT_DIR, `${path.basename(outputName)}_render_status.json`);
+}
+
+function readRenderStatusFromFile(outputName) {
+  const file = getRenderStatusFilePath(outputName);
+  if (!fs.existsSync(file)) return null;
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    return {
+      status: parsed.status || "",
+      stage: parsed.stage || "",
+      frameReady: !!parsed.frameReady,
+      framePath: parsed.framePath || "",
+      outputName: parsed.outputName || path.basename(outputName),
+      errorStage: parsed.errorStage || "",
+      log: "",
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseRangeHeader(rangeHeader, fileSize) {
@@ -250,7 +274,7 @@ const server = http.createServer((req, res) => {
         return;
       }
       // sanitise outputName — no path separators
-      const safeName = path.basename(outputName).replace(/[^a-zA-Z0-9_\-]/g, "_");
+      const safeName = path.basename(outputName || path.basename(aepPath, ".aep")).replace(/[^a-zA-Z0-9_\-]/g, "_");
       if (renderJobs.get(safeName)?.status === "running") {
         res.writeHead(409, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
         res.end(JSON.stringify({ ok: false, error: "Already rendering" }));
@@ -268,7 +292,12 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
       res.end(JSON.stringify({ ok: true, outputName: safeName }));
       broadcastSse(`render-job:${safeName}`);
-      const child = spawn(AEP_TO_CURRENT_FRAME_AND_MP4_SH, [aepPath, "--comp", compName, "--frame", String(frameNumber)], {
+      const child = spawn(AEP_TO_CURRENT_FRAME_AND_MP4_SH, [
+        aepPath,
+        "--comp", compName,
+        "--frame", String(frameNumber),
+        "--output-stem", safeName,
+      ], {
         stdio: ["ignore", "pipe", "pipe"],
       });
       const appendLog = d => appendRenderOutput(safeName, d);
@@ -289,7 +318,7 @@ const server = http.createServer((req, res) => {
   // API: poll render job status
   if (url.pathname === "/api/render-status") {
     const name = url.searchParams.get("name") || "";
-    const job = renderJobs.get(name);
+    const job = renderJobs.get(name) || readRenderStatusFromFile(name);
     if (!job) {
       res.writeHead(404, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
       res.end(JSON.stringify({ ok: false, error: "Not found" }));
@@ -311,7 +340,7 @@ const server = http.createServer((req, res) => {
 
   // Serve video files
   if (url.pathname.startsWith("/output/")) {
-    const file = path.join(OUTPUT_DIR, path.basename(url.pathname));
+    const file = path.join(OUTPUT_DIR, decodeURIComponent(path.basename(url.pathname)));
     if (!fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
     const stat = fs.statSync(file);
     const ext = path.extname(file);

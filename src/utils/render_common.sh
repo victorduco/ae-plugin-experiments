@@ -83,6 +83,42 @@ ae_frame_preview_path() {
     printf '%s\n' "$root_dir/output/${script_name}_current_frame.png"
 }
 
+ae_render_status_path() {
+    local root_dir="$1"
+    local script_name="$2"
+    printf '%s\n' "$root_dir/output/${script_name}_render_status.json"
+}
+
+ae_write_render_status() {
+    local status_file="$1"
+    local status="$2"
+    local stage="$3"
+    local frame_ready="$4"
+    local frame_path="${5:-}"
+    local output_name="${6:-}"
+    local error_stage="${7:-}"
+
+    mkdir -p "$(dirname "$status_file")"
+
+    python3 - "$status_file" "$status" "$stage" "$frame_ready" "$frame_path" "$output_name" "$error_stage" <<'PY'
+import json
+import sys
+
+status_file, status, stage, frame_ready, frame_path, output_name, error_stage = sys.argv[1:]
+
+with open(status_file, "w", encoding="utf-8") as fh:
+    json.dump({
+        "status": status,
+        "stage": stage,
+        "frameReady": frame_ready.lower() == "true",
+        "framePath": frame_path,
+        "outputName": output_name,
+        "errorStage": error_stage,
+    }, fh)
+    fh.write("\n")
+PY
+}
+
 ae_cleanup_script_outputs() {
     local output_dir="$1"
     local aep_dir="$2"

@@ -56,7 +56,10 @@
     _bc.property(1).property("ADBE Vectors Group").addProperty("ADBE Vector Graphic - Fill");
     var bRect = _bc.property(1).property("ADBE Vectors Group").property(1);
     var bFill = _bc.property(1).property("ADBE Vectors Group").property(2);
-    bRect.property("ADBE Vector Rect Size").setValue([bW, bH]);
+    var tChange  = 75 / fps; // 1s15f
+    var bShrink  = 150 * 4; // 150px on screen → comp space (4x)
+    bRect.property("ADBE Vector Rect Size").setValueAtTime(0,       [bW,           bH]);
+    bRect.property("ADBE Vector Rect Size").setValueAtTime(tChange, [bW - bShrink, bH]);
     bRect.property("ADBE Vector Rect Position").setValue([0, 0]);
     bRect.property("ADBE Vector Rect Roundness").setValue(bH / 2); // full pill
     bFill.property("ADBE Vector Fill Color").setValue([0, 0, 0, 1]);
@@ -70,6 +73,8 @@
     glowBgLayer.outPoint = tBubbleOut;
     glowBgLayer.property("Transform").property("ADBE Position").setValue([bW / 2, bH / 2, 0]);
     glowBgLayer.property("Transform").property("ADBE Anchor Point").setValue([bW / 2, bH / 2, 0]);
+    glowBgLayer.property("Transform").property("ADBE Opacity").setValueAtTime(0,       50);
+    glowBgLayer.property("Transform").property("ADBE Opacity").setValueAtTime(tChange, 0);
 
     // Gradient Ramp: red (#FC413D) left → green (#00B95C) right, across bottom-right quarter
     // Ramp coords are in layer space = comp space when anchor=center and pos=center
@@ -103,7 +108,8 @@
     _gmvg.addProperty("ADBE Vector Graphic - Fill");
     var _gmRect = _gmvg.property("ADBE Vector Shape - Rect");
     var _gmFill = _gmvg.property("ADBE Vector Graphic - Fill");
-    _gmRect.property("ADBE Vector Rect Size").setValue([bW, bH]);
+    _gmRect.property("ADBE Vector Rect Size").setValueAtTime(0,       [bW,           bH]);
+    _gmRect.property("ADBE Vector Rect Size").setValueAtTime(tChange, [bW - bShrink, bH]);
     _gmRect.property("ADBE Vector Rect Position").setValue([0, 0]);
     _gmRect.property("ADBE Vector Rect Roundness").setValue(bH / 2);
     _gmFill.property("ADBE Vector Fill Color").setValue([1, 1, 1, 1]);
@@ -123,7 +129,8 @@
     _gl.property(1).property("ADBE Vectors Group").addProperty("ADBE Vector Graphic - Stroke");
     var glRect   = _gl.property(1).property("ADBE Vectors Group").property("ADBE Vector Shape - Rect");
     var glStroke = _gl.property(1).property("ADBE Vectors Group").property("ADBE Vector Graphic - Stroke");
-    glRect.property("ADBE Vector Rect Size").setValue([bW, bH]);
+    glRect.property("ADBE Vector Rect Size").setValueAtTime(0,       [bW,           bH]);
+    glRect.property("ADBE Vector Rect Size").setValueAtTime(tChange, [bW - bShrink, bH]);
     glRect.property("ADBE Vector Rect Position").setValue([0, 0]);
     glRect.property("ADBE Vector Rect Roundness").setValue(bH / 2);
     glStroke.property("ADBE Vector Stroke Color").setValue([1, 1, 1, 1]);
@@ -151,7 +158,9 @@
     textLayer.inPoint  = 0;
     textLayer.outPoint = tBubbleOut;
     var textProp = textLayer.property("Source Text");
+    // keyframe 0: "Checking your calendar", left-justified
     var textDoc  = textProp.value;
+    textDoc.text          = "Checking your calendar";
     textDoc.fontSize      = fontSize;
     textDoc.font          = "GoogleSansFlex_500.000wght_100.000ROND";
     textDoc.fillColor     = [1, 1, 1];
@@ -159,11 +168,24 @@
     textDoc.applyStroke   = false;
     textDoc.justification = ParagraphJustification.LEFT_JUSTIFY;
     textDoc.tracking      = 0;
-    textProp.setValue(textDoc);
+    textProp.setValueAtTime(0, textDoc);
+    // keyframe tChange: two lines, center-justified
+    var textDoc2 = textProp.value;
+    textDoc2.text          = "You're free 10/10.\rAdd to calendar?";
+    textDoc2.fontSize      = fontSize;
+    textDoc2.font          = "GoogleSansFlex_500.000wght_100.000ROND";
+    textDoc2.fillColor     = [1, 1, 1];
+    textDoc2.applyFill     = true;
+    textDoc2.applyStroke   = false;
+    textDoc2.justification = ParagraphJustification.LEFT_JUSTIFY;
+    textDoc2.tracking      = 0;
+    textProp.setValueAtTime(tChange, textDoc2);
+    var tTransEnd = 90 / fps; // tChange + 15f = transition end
     // anchor at top-left (default for text)
     textLayer.property("Transform").property("ADBE Anchor Point").setValue([0, 0, 0]);
     textLayer.parent = nullLayer;
-    // horizontal: group centered on null; vertical: 0 (null is at bH/2)
+    // phase 1 (0..tChange): single line, centered group (icon+text) on null
+    // phase 2 (tChange..): two lines, text starts right of icon+gap, vertically centered
     textLayer.property("Transform").property("ADBE Position").expression =
         'var iconSz = ' + iconSz + ';\n' +
         'var gap = ' + gap + ';\n' +
@@ -204,9 +226,32 @@
     logoLayer.property("Transform").property("ADBE Position").setValue([iconSz / 2, iconSz / 2, 0]);
     logoLayer.property("Transform").property("ADBE Scale").setValue([logoScale, logoScale, logoScale]);
 
-    // Fill effect — заливает лого белым, сохраняя альфу; легко анимировать цвет
+    // Fill effect — белая заливка; убирается через opacity слоя
     var fillEffect = logoLayer.property("Effects").addProperty("ADBE Fill");
-    fillEffect.property("ADBE Fill-0002").setValue([1, 1, 1]); // цвет: белый
+    fillEffect.property("ADBE Fill-0002").setValue([1, 1, 1]);
+    // fade fill out: add second logo layer duplicate without fill on top won't work —
+    // instead animate layer opacity: 100% fill visible → at tTransEnd layer at 100% but fill gone
+    // We use a second shape on top that's original-color, faded in via opacity
+    // Simplest: animate Fill effect opacity via layer Opacity keyframes on a duplicate isn't possible
+    // → Just disable fill at tChange by setting opacity 0 via ADBE Fill-0007 static (not animated)
+    // and crossfade by animating the logoLayer opacity 0→100 (without fill) with a pre-comp trick
+    // Cleanest solution: animate logoLayer Opacity 100→0 at tChange, add logoLayer2 (no fill) 0→100
+    logoLayer.property("Transform").property("ADBE Opacity").setValueAtTime(0,        100);
+    logoLayer.property("Transform").property("ADBE Opacity").setValueAtTime(tChange,  100);
+    logoLayer.property("Transform").property("ADBE Opacity").setValueAtTime(tTransEnd,  0);
+
+    // logo without fill — fades in at transition
+    var pngItem2 = app.project.importFile(new ImportOptions(pngFile));
+    var logoLayer2 = compIcon.layers.add(pngItem2);
+    logoLayer2.name = "logo_color";
+    logoLayer2.inPoint  = 0;
+    logoLayer2.outPoint = tBubbleOut;
+    logoLayer2.property("Transform").property("ADBE Anchor Point").setValue([pngNative / 2, pngNative / 2, 0]);
+    logoLayer2.property("Transform").property("ADBE Position").setValue([iconSz / 2, iconSz / 2, 0]);
+    logoLayer2.property("Transform").property("ADBE Scale").setValue([logoScale, logoScale, logoScale]);
+    logoLayer2.property("Transform").property("ADBE Opacity").setValueAtTime(0,        0);
+    logoLayer2.property("Transform").property("ADBE Opacity").setValueAtTime(tChange,  0);
+    logoLayer2.property("Transform").property("ADBE Opacity").setValueAtTime(tTransEnd, 100);
 
     // icon layer in bubble — uses icon comp
     var bIcon = compBubble1.layers.add(compIcon);
@@ -215,6 +260,16 @@
     bIcon.outPoint = tBubbleOut;
     bIcon.property("Transform").property("ADBE Anchor Point").setValue([iconSz / 2, iconSz / 2, 0]);
     bIcon.parent = nullLayer;
+    // rotation: -45° → 0° over tChange..tChange+15f, ease out
+    var rEaseIn  = new KeyframeEase(0,  0.1);
+    var rEaseOut = new KeyframeEase(0, 80);
+    var bIconRot = bIcon.property("Transform").property("ADBE Rotate Z");
+    bIconRot.setValueAtTime(0,        -90);
+    bIconRot.setValueAtTime(tChange,  -90);
+    bIconRot.setValueAtTime(tTransEnd,  0);
+    bIconRot.setTemporalEaseAtKey(1, [rEaseIn],  [rEaseIn]);
+    bIconRot.setTemporalEaseAtKey(2, [rEaseIn],  [rEaseIn]);
+    bIconRot.setTemporalEaseAtKey(3, [rEaseOut], [rEaseOut]);
     bIcon.property("Transform").property("ADBE Position").expression =
         'var txt = thisComp.layer("label");\n' +
         'var iconSz = ' + iconSz + ';\n' +
@@ -225,15 +280,78 @@
 
     // === COMP: life_easier ===
     var compLife = app.project.items.addComp("life_easier", W, H, 1, tLifeOut - tLifeIn, fps);
-    var lSolid = compLife.layers.addSolid([0.2, 0.7, 0.3], "bg", W, H, 1);
-    lSolid.inPoint  = 0;
-    lSolid.outPoint = tLifeOut - tLifeIn;
+    var lDur = tLifeOut - tLifeIn;
+
+    var lifeText = compLife.layers.addText("Making life a little easier");
+    lifeText.name    = "label";
+    lifeText.inPoint  = 0;
+    lifeText.outPoint = lDur;
+    var lifeTextProp = lifeText.property("Source Text");
+    var lifeTextDoc  = lifeTextProp.value;
+    lifeTextDoc.fontSize      = fontSize;
+    lifeTextDoc.font          = "GoogleSansFlex_500.000wght_100.000ROND";
+    lifeTextDoc.fillColor     = [1, 1, 1];
+    lifeTextDoc.applyFill     = true;
+    lifeTextDoc.applyStroke   = false;
+    lifeTextDoc.justification = ParagraphJustification.CENTER_JUSTIFY;
+    lifeTextDoc.tracking      = 0;
+    lifeTextProp.setValue(lifeTextDoc);
+    lifeText.property("Transform").property("ADBE Anchor Point").setValue([0, 0, 0]);
+    lifeText.property("Transform").property("ADBE Position").expression =
+        'var r = thisLayer.sourceRectAtTime(time, false);\n' +
+        '[thisComp.width / 2 - r.width / 2 - r.left, thisComp.height / 2 - r.height / 2 - r.top]';
 
     // === COMP: logo ===
-    var compLogo = app.project.items.addComp("logo", W, H, 1, dur - tLogoIn, fps);
-    var loSolid = compLogo.layers.addSolid([0.9, 0.7, 0.1], "bg", W, H, 1);
-    loSolid.inPoint  = 0;
-    loSolid.outPoint = dur - tLogoIn;
+    var logoDur = dur - tLogoIn;
+    var compLogo = app.project.items.addComp("logo", W, H, 1, logoDur, fps);
+
+    // icon comp reused — add to logo comp with same layout as bubble (icon + label, centered)
+    var logoIconLayer = compLogo.layers.add(compIcon);
+    logoIconLayer.name    = "icon";
+    logoIconLayer.inPoint  = 0;
+    logoIconLayer.outPoint = logoDur;
+
+    var logoNull = compLogo.layers.addNull();
+    logoNull.name     = "center";
+    logoNull.inPoint  = 0;
+    logoNull.outPoint = logoDur;
+    logoNull.property("Transform").property("ADBE Anchor Point").setValue([0, 0, 0]);
+    logoNull.property("Transform").property("ADBE Position").setValue([W / 2, H / 2, 0]);
+
+    var logoText = compLogo.layers.addText("Gemini Intelligence");
+    logoText.name    = "label";
+    logoText.inPoint  = 0;
+    logoText.outPoint = logoDur;
+    var logoTextProp = logoText.property("Source Text");
+    var logoTextDoc  = logoTextProp.value;
+    logoTextDoc.fontSize      = fontSize;
+    logoTextDoc.font          = "GoogleSansFlex_500.000wght_100.000ROND";
+    logoTextDoc.fillColor     = [1, 1, 1];
+    logoTextDoc.applyFill     = true;
+    logoTextDoc.applyStroke   = false;
+    logoTextDoc.justification = ParagraphJustification.LEFT_JUSTIFY;
+    logoTextDoc.tracking      = 0;
+    logoTextProp.setValue(logoTextDoc);
+    logoText.property("Transform").property("ADBE Anchor Point").setValue([0, 0, 0]);
+    logoText.parent = logoNull;
+    logoText.property("Transform").property("ADBE Position").expression =
+        'var iconSz = ' + iconSz + ';\n' +
+        'var gap = ' + gap + ';\n' +
+        'var r = thisLayer.sourceRectAtTime(time, false);\n' +
+        'var groupW = iconSz + gap + r.width;\n' +
+        'var textLeft = -groupW / 2 + iconSz + gap;\n' +
+        'var textCenterY = -(r.top + r.height / 2);\n' +
+        '[textLeft, textCenterY]';
+
+    logoIconLayer.property("Transform").property("ADBE Anchor Point").setValue([iconSz / 2, iconSz / 2, 0]);
+    logoIconLayer.parent = logoNull;
+    logoIconLayer.property("Transform").property("ADBE Position").expression =
+        'var txt = thisComp.layer("label");\n' +
+        'var iconSz = ' + iconSz + ';\n' +
+        'var gap = ' + gap + ';\n' +
+        'var r = txt.sourceRectAtTime(time, false);\n' +
+        'var groupW = iconSz + gap + r.width;\n' +
+        '[-groupW / 2 + iconSz / 2, 0]';
 
     // === COMP: as2_v1 ===
     var compMain = app.project.items.addComp("as2_v1", W, H, 1, dur, fps);
@@ -263,7 +381,15 @@
     layerMessenger.outPoint = tMessengerOut;
     layerMessenger.property("Transform").property("ADBE Anchor Point").setValue([mW / 2, mH / 2, 0]);
     layerMessenger.property("Transform").property("ADBE Position").setValue([W / 2, H / 2, 0]);
-    layerMessenger.property("Transform").property("ADBE Scale").setValue([100, 100, 100]);
+    // animate scale 100→75% over 0..1s10f, ease out (fast start, slow end)
+    var tAnim = 70 / fps; // 1s10f
+    var mScaleProp = layerMessenger.property("Transform").property("ADBE Scale");
+    mScaleProp.setValueAtTime(0,     [100, 100, 100]);
+    mScaleProp.setValueAtTime(tAnim, [75,  75,  75]);
+    var eStart = new KeyframeEase(0,   0.1); // linear out from first key
+    var eEnd   = new KeyframeEase(0,  80);   // ease in to last key (slow end)
+    mScaleProp.setTemporalEaseAtKey(1, [eStart, eStart, eStart], [eStart, eStart, eStart]);
+    mScaleProp.setTemporalEaseAtKey(2, [eEnd, eEnd, eEnd],       [eEnd, eEnd, eEnd]);
 
     // blur adjustment layer — masked to pill shape, blurs everything below
     var blurAdj = compMain.layers.addSolid([0, 0, 0], "bubble_blur", W, H, 1);
@@ -305,7 +431,12 @@
     layerBubble.outPoint = tBubbleOut;
     layerBubble.property("Transform").property("ADBE Anchor Point").setValue([bW / 2, bH / 2, 0]);
     layerBubble.property("Transform").property("ADBE Position").setValue([W / 2, H / 2 + 24, 0]);
-    layerBubble.property("Transform").property("ADBE Scale").setValue([100, 100, 100]);
+    // animate scale 100→60% over 0..1s10f, ease out
+    var bScaleProp = layerBubble.property("Transform").property("ADBE Scale");
+    bScaleProp.setValueAtTime(0,     [100, 100, 100]);
+    bScaleProp.setValueAtTime(tAnim, [60,  60,  60]);
+    bScaleProp.setTemporalEaseAtKey(1, [eStart, eStart, eStart], [eStart, eStart, eStart]);
+    bScaleProp.setTemporalEaseAtKey(2, [eEnd, eEnd, eEnd],       [eEnd, eEnd, eEnd]);
 
     // life_easier — visible tLifeIn..tLifeOut
     var layerLife = compMain.layers.add(compLife);

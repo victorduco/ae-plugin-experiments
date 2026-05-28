@@ -9,17 +9,19 @@ SCRIPT_NAME=""
 BACKUP=0
 COMP_OVERRIDE=""
 PREVIEW=0
+OUTPUT_STEM=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --backup|-b) BACKUP=1; shift ;;
         --comp) COMP_OVERRIDE="$2"; shift 2 ;;
         --preview|-p) PREVIEW=1; shift ;;
+        --output-stem) OUTPUT_STEM="$2"; shift 2 ;;
         *)
             if [ -z "$SCRIPT_NAME" ]; then
                 SCRIPT_NAME="$1"; shift
             else
                 echo "ERROR: Unknown argument: $1"
-                echo "Usage: aep_to_mp4.sh <script_name> [--comp <comp_name>] [--preview] [--backup]"
+                echo "Usage: aep_to_mp4.sh <script_name> [--comp <comp_name>] [--preview] [--backup] [--output-stem <name>]"
                 exit 1
             fi
             ;;
@@ -27,7 +29,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$SCRIPT_NAME" ]; then
-    echo "Usage: aep_to_mp4.sh <script_name|path/to/file.aep> [--comp <comp_name>] [--preview] [--backup]"
+    echo "Usage: aep_to_mp4.sh <script_name|path/to/file.aep> [--comp <comp_name>] [--preview] [--backup] [--output-stem <name>]"
     exit 1
 fi
 
@@ -42,15 +44,20 @@ TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 IFS=$'\t' read -r PROJECT_FILE SCRIPT_NAME <<EOF
 $(ae_resolve_project_file_and_name "$ROOT_DIR" "$SCRIPT_NAME")
 EOF
-OUTPUT_MOV="$OUTPUT_DIR/${SCRIPT_NAME}.mov"
-OUTPUT_MP4="$OUTPUT_DIR/${SCRIPT_NAME}.mp4"
-OUTPUT_LOG="$LOGS_DIR/${SCRIPT_NAME}.log"
-OUTPUT_LAST="$OUTPUT_DIR/${SCRIPT_NAME}_last.mp4"
-OUTPUT_REF="$OUTPUT_DIR/${SCRIPT_NAME}_ref.mp4"
-OUTPUT_FRAME_PREVIEW="$(ae_frame_preview_path "$ROOT_DIR" "$SCRIPT_NAME")"
+
+if [ -z "$OUTPUT_STEM" ]; then
+    OUTPUT_STEM="$SCRIPT_NAME"
+fi
+
+OUTPUT_MOV="$OUTPUT_DIR/${OUTPUT_STEM}.mov"
+OUTPUT_MP4="$OUTPUT_DIR/${OUTPUT_STEM}.mp4"
+OUTPUT_LOG="$LOGS_DIR/${OUTPUT_STEM}.log"
+OUTPUT_LAST="$OUTPUT_DIR/${OUTPUT_STEM}_last.mp4"
+OUTPUT_REF="$OUTPUT_DIR/${OUTPUT_STEM}_ref.mp4"
+OUTPUT_FRAME_PREVIEW="$(ae_frame_preview_path "$ROOT_DIR" "$OUTPUT_STEM")"
 BACKUP_PROJECT_FILE="$AEP_DIR/${SCRIPT_NAME}_${TIMESTAMP}.aep"
-BACKUP_OUTPUT_MP4="$OUTPUT_DIR/${SCRIPT_NAME}_${TIMESTAMP}.mp4"
-BACKUP_OUTPUT_LOG="$LOGS_DIR/${SCRIPT_NAME}_${TIMESTAMP}.log"
+BACKUP_OUTPUT_MP4="$OUTPUT_DIR/${OUTPUT_STEM}_${TIMESTAMP}.mp4"
+BACKUP_OUTPUT_LOG="$LOGS_DIR/${OUTPUT_STEM}_${TIMESTAMP}.log"
 
 AERENDER="$(ae_resolve_aerender)"
 

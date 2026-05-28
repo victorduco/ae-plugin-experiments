@@ -13,8 +13,7 @@ FRAME_NUMBER=""
 BACKUP=0
 PREVIEW=0
 CURRENT_STAGE=""
-
-trap 'code=$?; if [ $code -ne 0 ]; then echo "JOB_STAGE: error"; if [ -n "$CURRENT_STAGE" ]; then echo "JOB_ERROR_STAGE: $CURRENT_STAGE"; fi; fi' EXIT
+OUTPUT_STEM=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -23,12 +22,13 @@ while [ $# -gt 0 ]; do
         --frame) FRAME_NUMBER="$2"; shift 2 ;;
         --backup|-b) BACKUP=1; shift ;;
         --preview|-p) PREVIEW=1; shift ;;
+        --output-stem) OUTPUT_STEM="$2"; shift 2 ;;
         *)
             if [ -z "$SCRIPT_NAME" ]; then
                 SCRIPT_NAME="$1"; shift
             else
                 echo "ERROR: Unknown argument: $1"
-                echo "Usage: jsx_to_current_frame_and_mp4.sh <script_name> --frame <frame_number> [--wait-ae] [--comp <comp_name>] [--preview] [--backup]"
+                echo "Usage: jsx_to_current_frame_and_mp4.sh <script_name> --frame <frame_number> [--wait-ae] [--comp <comp_name>] [--preview] [--backup] [--output-stem <name>]"
                 exit 1
             fi
             ;;
@@ -36,11 +36,23 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$SCRIPT_NAME" ] || [ -z "$FRAME_NUMBER" ]; then
-    echo "Usage: jsx_to_current_frame_and_mp4.sh <script_name> --frame <frame_number> [--wait-ae] [--comp <comp_name>] [--preview] [--backup]"
+    echo "Usage: jsx_to_current_frame_and_mp4.sh <script_name> --frame <frame_number> [--wait-ae] [--comp <comp_name>] [--preview] [--backup] [--output-stem <name>]"
     exit 1
 fi
 
+source "$ROOT_DIR/src/utils/render_common.sh"
+
+if [ -z "$OUTPUT_STEM" ]; then
+    OUTPUT_STEM="$SCRIPT_NAME"
+fi
+
+STATUS_FILE="$(ae_render_status_path "$ROOT_DIR" "$OUTPUT_STEM")"
+FRAME_PATH="/output/${OUTPUT_STEM}_current_frame.png"
+
+trap 'code=$?; if [ $code -ne 0 ]; then ae_write_render_status "$STATUS_FILE" "error" "error" false "$FRAME_PATH" "$OUTPUT_STEM" "${CURRENT_STAGE:-error}"; echo "JOB_STAGE: error"; if [ -n "$CURRENT_STAGE" ]; then echo "JOB_ERROR_STAGE: $CURRENT_STAGE"; fi; fi' EXIT
+
 CURRENT_STAGE="build"
+ae_write_render_status "$STATUS_FILE" "running" "$CURRENT_STAGE" false "$FRAME_PATH" "$OUTPUT_STEM"
 echo "JOB_STAGE: build"
 if [ "$WAIT_AE" -eq 1 ]; then
     "$ROOT_DIR/src/utils/jsx_to_aep.sh" "$SCRIPT_NAME" --wait-ae
@@ -58,6 +70,9 @@ if [ "$PREVIEW" -eq 1 ]; then
 fi
 if [ "$BACKUP" -eq 1 ]; then
     ARGS+=(--backup)
+fi
+if [ -n "$OUTPUT_STEM" ]; then
+    ARGS+=(--output-stem "$OUTPUT_STEM")
 fi
 
 "$ROOT_DIR/src/utils/aep_to_current_frame_and_mp4.sh" "${ARGS[@]}"
